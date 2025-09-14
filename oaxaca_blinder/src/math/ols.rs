@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector};
 #[derive(Debug)]
 pub struct OlsResult {
     pub coefficients: DVector<f64>,
-    // Other fields like residuals, r_squared could be added later if needed.
+    pub vcov: DMatrix<f64>,
 }
 
 /// Performs an Ordinary Least Squares (OLS) regression.
@@ -39,9 +39,22 @@ pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>) -> Result<OlsResult, OaxacaError>
     let xty = x.transpose() * y;
 
     // Calculate the coefficients: β = (X'X)⁻¹ * X'y
-    let coefficients = xtx_inv * xty;
+    let coefficients = &xtx_inv * xty;
 
-    Ok(OlsResult { coefficients })
+    // Calculate residuals
+    let y_hat = x * &coefficients;
+    let residuals = y - y_hat;
+
+    // Calculate residual variance
+    let n = x.nrows() as f64;
+    let k = x.ncols() as f64;
+    let sse = residuals.transpose() * residuals;
+    let sigma_squared = sse[(0, 0)] / (n - k);
+
+    // Calculate variance-covariance matrix
+    let vcov = xtx_inv * sigma_squared;
+
+    Ok(OlsResult { coefficients, vcov })
 }
 
 /// Performs a pooled Ordinary Least Squares (OLS) regression on two groups of data.

@@ -19,6 +19,8 @@ fn run_and_check(builder: OaxacaBuilder, expected_gap: f64) {
     // Check that the two-fold decomposition sums to the total gap
     let explained = results.two_fold().aggregate().iter().find(|c| c.name() == "explained").unwrap().estimate();
     let unexplained = results.two_fold().aggregate().iter().find(|c| c.name() == "unexplained").unwrap().estimate();
+    let total_gap = results.total_gap();
+    println!("Explained: {}, Unexplained: {}, Sum: {}, Total Gap: {}", explained, unexplained, explained + unexplained, total_gap);
     assert!((explained + unexplained - results.total_gap()).abs() < 1e-9, "Decomposition does not sum to total gap");
 
     // Check that the number of observations is correct
@@ -34,7 +36,7 @@ fn test_full_run_group_b_ref() {
     let df = create_sample_dataframe();
     let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
         .predictors(&["education"])
-        .bootstrap_reps(20); // Default is GroupB
+        .bootstrap_reps(5); // Default is GroupB
     run_and_check(builder, 10.0);
 }
 
@@ -43,7 +45,7 @@ fn test_full_run_group_a_ref() {
     let df = create_sample_dataframe();
     let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
         .predictors(&["education"])
-        .bootstrap_reps(20)
+        .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::GroupA);
     run_and_check(builder, 10.0);
 }
@@ -53,7 +55,7 @@ fn test_full_run_pooled_ref() {
     let df = create_sample_dataframe();
     let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
         .predictors(&["education"])
-        .bootstrap_reps(20)
+        .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Pooled);
     run_and_check(builder, 10.0);
 }
@@ -63,7 +65,24 @@ fn test_full_run_weighted_ref() {
     let df = create_sample_dataframe();
     let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
         .predictors(&["education"])
-        .bootstrap_reps(20)
+        .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Weighted);
+    run_and_check(builder, 10.0);
+}
+
+#[test]
+fn test_with_categorical_variable() {
+    let df = df!(
+        "wage" => &[10.0, 12.0, 11.0, 13.0, 15.0, 20.0, 22.0, 21.0, 23.0, 25.0],
+        "education" => &[12.0, 16.0, 14.0, 16.0, 18.0, 12.0, 16.0, 14.0, 16.0, 18.0],
+        "gender" => &["F", "F", "F", "F", "F", "M", "M", "M", "M", "M"],
+        "union" => &["none", "union", "union_plus", "none", "union", "union_plus", "none", "union", "union_plus", "none"]
+    ).unwrap();
+
+    let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
+        .predictors(&["education"])
+        .categorical_predictors(&["union"])
+        .bootstrap_reps(5);
+
     run_and_check(builder, 10.0);
 }

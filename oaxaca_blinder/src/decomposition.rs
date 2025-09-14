@@ -61,10 +61,11 @@ pub fn three_fold_decomposition(
     xb_mean: &DVector<f64>,
     beta_a: &DVector<f64>,
     beta_b: &DVector<f64>,
+    beta_star: &DVector<f64>,
 ) -> ThreeFoldDecomposition {
     let diff_x = xa_mean - xb_mean;
     let diff_beta = beta_a - beta_b;
-    let endowments = diff_x.dot(beta_b);
+    let endowments = diff_x.dot(beta_star);
     let coefficients = xb_mean.dot(&diff_beta);
     let interaction = diff_x.dot(&diff_beta);
     ThreeFoldDecomposition { endowments, coefficients, interaction }
@@ -115,7 +116,8 @@ mod tests {
         let xb_mean = DVector::from_vec(vec![1.0, 3.0]);
         let beta_a = DVector::from_vec(vec![2.0, 4.0]);
         let beta_b = DVector::from_vec(vec![1.0, 3.0]);
-        let result = three_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b);
+        let beta_star = beta_b.clone();
+        let result = three_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star);
         assert!((result.endowments - 6.0).abs() < 1e-9);
         assert!((result.coefficients - 4.0).abs() < 1e-9);
         assert!((result.interaction - 2.0).abs() < 1e-9);

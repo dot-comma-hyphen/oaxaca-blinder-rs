@@ -2,6 +2,9 @@
 
 /// Calculates the standard error, p-value, and confidence interval from a vector of bootstrap estimates.
 pub fn bootstrap_stats(estimates: &[f64], point_estimate: f64) -> (f64, f64, (f64, f64)) {
+    if estimates.is_empty() {
+        return (f64::NAN, f64::NAN, (f64::NAN, f64::NAN));
+    }
     // Standard error is the standard deviation of the bootstrap estimates.
     let n = estimates.len() as f64;
     let mean: f64 = estimates.iter().sum::<f64>() / n;
