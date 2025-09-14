@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "test_app"
+path = "src/main.rs"
+
+[[bin]]
+name = "generate_data"
+path = "src/bin/generate_data.rs"
 
 [dependencies]
 getset = "0.1.2"
@@ -11,3 +18,4 @@ nalgebra = "0.32.3"
 polars = { version = "0.38.3", features = ["lazy", "csv", "ndarray", "random"] }
 rand = "0.8.5"
 comfy-table = "7.0.1"
+csv = "1.3.0"
