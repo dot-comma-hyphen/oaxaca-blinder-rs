@@ -30,6 +30,7 @@
 //! }
 //! ```
 
+use std::fmt;
 use getset::Getters;
 use polars::prelude::*;
 use nalgebra::{DMatrix, DVector};
@@ -62,6 +63,19 @@ pub enum OaxacaError {
 impl From<PolarsError> for OaxacaError {
     fn from(err: PolarsError) -> Self { OaxacaError::PolarsError(err) }
 }
+
+impl fmt::Display for OaxacaError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            OaxacaError::PolarsError(e) => write!(f, "Polars error: {}", e),
+            OaxacaError::ColumnNotFound(s) => write!(f, "Column not found: {}", s),
+            OaxacaError::InvalidGroupVariable(s) => write!(f, "Invalid group variable: {}", s),
+            OaxacaError::NalgebraError(s) => write!(f, "Nalgebra error: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for OaxacaError {}
 
 /// The main entry point for configuring and running an Oaxaca-Blinder decomposition.
 ///
