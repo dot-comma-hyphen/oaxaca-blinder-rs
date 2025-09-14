@@ -1,0 +1,4 @@
+# Ignore Rust build artifacts and dependencies
+/oaxaca_blinder/target/
+/target/
+Cargo.lock
