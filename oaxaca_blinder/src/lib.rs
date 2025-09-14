@@ -40,12 +40,13 @@ mod math;
 mod decomposition;
 mod inference;
 
-use crate::math::ols::{ols};
+use crate::math::ols::{ols, pooled_ols};
 use crate::decomposition::{
-    three_fold_decomposition, two_fold_from_three_fold, detailed_decomposition,
-    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent, ReferenceCoefficients,
+    three_fold_decomposition, two_fold_decomposition, detailed_decomposition,
+    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent,
 };
 use crate::inference::bootstrap_stats;
+pub use crate::decomposition::ReferenceCoefficients;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -88,6 +89,7 @@ pub struct OaxacaBuilder {
     group: String,
     reference_group: String,
     bootstrap_reps: usize,
+    reference_coeffs: ReferenceCoefficients,
 }
 
 #[derive(Clone)]
@@ -116,7 +118,16 @@ impl OaxacaBuilder {
             group: group.to_string(),
             reference_group: reference_group.to_string(),
             bootstrap_reps: 100,
+            reference_coeffs: ReferenceCoefficients::default(),
         }
+    }
+
+    /// Sets the reference coefficients for the decomposition.
+    ///
+    /// The default is `ReferenceCoefficients::GroupB`.
+    pub fn reference_coefficients(mut self, reference: ReferenceCoefficients) -> Self {
+        self.reference_coeffs = reference;
+        self
     }
 
     /// Sets the predictor variables for the model.
@@ -173,13 +184,43 @@ impl OaxacaBuilder {
 
         let (x_a, y_a, predictor_names) = self.prepare_data(&df_a)?;
         let (x_b, y_b, _) = self.prepare_data(&df_b)?;
-        let ols_a = ols(&y_a, &x_a)?; let ols_b = ols(&y_b, &x_b)?;
-        let xa_mean = x_a.row_mean().transpose(); let xb_mean = x_b.row_mean().transpose();
 
-        let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, &ols_a.coefficients, &ols_b.coefficients);
-        let two_fold = two_fold_from_three_fold(&three_fold, &ReferenceCoefficients::GroupB);
-        let (detailed_explained, detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, &ols_a.coefficients, &ols_b.coefficients, &predictor_names);
+        let ols_a = ols(&y_a, &x_a)?;
+        let ols_b = ols(&y_b, &x_b)?;
+        let beta_a = &ols_a.coefficients;
+        let beta_b = &ols_b.coefficients;
+
+        let beta_star_owned: DVector<f64>;
+        let beta_star: &DVector<f64> = match self.reference_coeffs {
+            ReferenceCoefficients::GroupA => beta_a,
+            ReferenceCoefficients::GroupB => beta_b,
+            ReferenceCoefficients::Pooled => {
+                let ols_pooled = pooled_ols(&y_a, &x_a, &y_b, &x_b)?;
+                beta_star_owned = ols_pooled.coefficients;
+                &beta_star_owned
+            }
+            ReferenceCoefficients::Weighted => {
+                let n_a = df_a.height() as f64;
+                let n_b = df_b.height() as f64;
+                let total_n = n_a + n_b;
+                if total_n == 0.0 {
+                    return Err(OaxacaError::InvalidGroupVariable("No data in groups for weighted coefficients.".to_string()));
+                }
+                let weight_a = n_a / total_n;
+                let weight_b = 1.0 - weight_a; // Avoids a second division
+                beta_star_owned = beta_a * weight_a + beta_b * weight_b;
+                &beta_star_owned
+            }
+        };
+
+        let xa_mean = x_a.row_mean().transpose();
+        let xb_mean = x_b.row_mean().transpose();
+
+        let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b);
+        let two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
+        let (detailed_explained, detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
         let total_gap = y_a.mean() - y_b.mean();
+
         Ok(SinglePassResult { three_fold, two_fold, detailed_explained, detailed_unexplained, total_gap })
     }
 
@@ -273,17 +314,34 @@ impl OaxacaResults {
         println!("Two-Fold Decomposition");
         println!("{}", two_fold_table);
 
-        let mut unexplained_table = Table::new();
-        unexplained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value"]);
-        for component in self.three_fold.detailed() { // Changed to use three_fold detailed for unexplained
-             unexplained_table.add_row(vec![
+        let mut explained_table = Table::new();
+        explained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value", "95% CI"]);
+        for component in self.two_fold.detailed() {
+            let ci = format!("[{:.3}, {:.3}]", component.ci_lower(), component.ci_upper());
+            explained_table.add_row(vec![
                 Cell::new(component.name()),
                 Cell::new(format!("{:.4}", component.estimate())),
                 Cell::new(format!("{:.4}", component.std_err())),
                 Cell::new(format!("{:.4}", component.p_value())),
+                Cell::new(ci),
             ]);
         }
-        println!("Detailed Decomposition (Unexplained)");
+        println!("\nDetailed Decomposition (Explained)");
+        println!("{}", explained_table);
+
+        let mut unexplained_table = Table::new();
+        unexplained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value", "95% CI"]);
+        for component in self.three_fold.detailed() {
+            let ci = format!("[{:.3}, {:.3}]", component.ci_lower(), component.ci_upper());
+            unexplained_table.add_row(vec![
+                Cell::new(component.name()),
+                Cell::new(format!("{:.4}", component.estimate())),
+                Cell::new(format!("{:.4}", component.std_err())),
+                Cell::new(format!("{:.4}", component.p_value())),
+                Cell::new(ci),
+            ]);
+        }
+        println!("\nDetailed Decomposition (Unexplained)");
         println!("{}", unexplained_table);
     }
 }

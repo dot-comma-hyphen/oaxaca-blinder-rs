@@ -20,7 +20,7 @@ pub fn bootstrap_stats(estimates: &[f64], point_estimate: f64) -> (f64, f64, (f6
     let mut sorted_estimates = estimates.to_vec();
     sorted_estimates.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     let lower_idx = (0.025 * n).floor() as usize;
-    let upper_idx = (0.975 * n).ceil() as usize;
+    let upper_idx = ((0.975 * n).floor() as usize).min(estimates.len() - 1);
     let ci_lower = sorted_estimates[lower_idx];
     let ci_upper = sorted_estimates[upper_idx];
 
