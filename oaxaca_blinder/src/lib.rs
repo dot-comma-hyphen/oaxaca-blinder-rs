@@ -40,12 +40,14 @@ mod math;
 mod decomposition;
 mod inference;
 
-use crate::math::ols::{ols};
+use crate::math::ols::{ols, pooled_ols};
 use crate::decomposition::{
-    three_fold_decomposition, two_fold_from_three_fold, detailed_decomposition,
-    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent, ReferenceCoefficients,
+    three_fold_decomposition, two_fold_decomposition, detailed_decomposition,
+    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent,
 };
+use crate::math::normalization::normalize_categorical_coefficients;
 use crate::inference::bootstrap_stats;
+pub use crate::decomposition::ReferenceCoefficients;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -85,9 +87,12 @@ pub struct OaxacaBuilder {
     dataframe: DataFrame,
     outcome: String,
     predictors: Vec<String>,
+    categorical_predictors: Vec<String>,
     group: String,
     reference_group: String,
     bootstrap_reps: usize,
+    reference_coeffs: ReferenceCoefficients,
+    normalization_vars: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -113,10 +118,21 @@ impl OaxacaBuilder {
             dataframe,
             outcome: outcome.to_string(),
             predictors: Vec::new(),
+            categorical_predictors: Vec::new(),
             group: group.to_string(),
             reference_group: reference_group.to_string(),
             bootstrap_reps: 100,
+            reference_coeffs: ReferenceCoefficients::default(),
+            normalization_vars: Vec::new(),
         }
+    }
+
+    /// Sets the reference coefficients for the decomposition.
+    ///
+    /// The default is `ReferenceCoefficients::GroupB`.
+    pub fn reference_coefficients(mut self, reference: ReferenceCoefficients) -> Self {
+        self.reference_coeffs = reference;
+        self
     }
 
     /// Sets the predictor variables for the model.
@@ -126,6 +142,16 @@ impl OaxacaBuilder {
     /// * `predictors` - A slice of strings representing the column names of the predictor variables.
     pub fn predictors(mut self, predictors: &[&str]) -> Self {
         self.predictors = predictors.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// Sets the categorical predictor variables for the model.
+    ///
+    /// # Arguments
+    ///
+    /// * `predictors` - A slice of strings representing the column names of the categorical predictor variables.
+    pub fn categorical_predictors(mut self, predictors: &[&str]) -> Self {
+        self.categorical_predictors = predictors.iter().map(|s| s.to_string()).collect();
         self
     }
 
@@ -139,27 +165,63 @@ impl OaxacaBuilder {
         self
     }
 
-    fn prepare_data(&self, df: &DataFrame) -> Result<(DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
+    /// Sets the categorical variables for which to apply coefficient normalization.
+    ///
+    /// # Arguments
+    ///
+    /// * `vars` - A slice of strings representing the column names of the categorical variables to normalize.
+    pub fn normalize(mut self, vars: &[&str]) -> Self {
+        self.normalization_vars = vars.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+
+    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
         let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
         let y = DVector::from_vec(y_vec);
 
-        let mut predictors_with_intercept = self.predictors.clone();
-        predictors_with_intercept.insert(0, "intercept".to_string());
+        let mut final_predictors: Vec<String> = vec!["intercept".to_string()];
+        final_predictors.extend_from_slice(&self.predictors);
+        final_predictors.extend_from_slice(all_dummy_names);
 
         let mut x_df = df.select(&self.predictors)?;
         let intercept_series = Series::new("intercept", vec![1.0; df.height()]);
         x_df.with_column(intercept_series)?;
 
-        let x_df = x_df.select(&predictors_with_intercept)?;
+        for name in all_dummy_names {
+            if df.get_column_names().contains(&name.as_str()) {
+                x_df.with_column(df.column(name)?.clone())?;
+            } else {
+                let zero_series = Series::new(name, vec![0.0; df.height()]);
+                x_df.with_column(zero_series)?;
+            }
+        }
 
-        let x_matrix = x_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
+        let x_df_selected = x_df.select(&final_predictors)?;
+        let x_matrix = x_df_selected.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
         let x_vec: Vec<f64> = x_matrix.iter().copied().collect();
-        let final_names = x_df.get_column_names().iter().map(|s| s.to_string()).collect();
-        Ok((DMatrix::from_row_slice(x_df.height(), x_df.width(), &x_vec), y, final_names))
+        let final_names = x_df_selected.get_column_names().iter().map(|s| s.to_string()).collect();
+        Ok((DMatrix::from_row_slice(x_df_selected.height(), x_df_selected.width(), &x_vec), y, final_names))
     }
 
-    fn run_single_pass(&self, df: &DataFrame) -> Result<SinglePassResult, OaxacaError> {
+    fn create_dummies_manual(&self, series: &Series) -> Result<DataFrame, OaxacaError> {
+        let unique_vals = series.unique()?.sort(false, false);
+        let mut dummy_vars: Vec<Series> = Vec::new();
+
+        for val in unique_vals.str()?.into_iter().flatten().skip(1) { // Skip the first category as the reference
+            let dummy_name = format!("{}_{}", series.name(), val);
+            let ca = series.equal(val)?;
+            let mut dummy_series = ca.into_series();
+            dummy_series = dummy_series.cast(&DataType::Float64)?;
+            dummy_series.rename(&dummy_name);
+            dummy_vars.push(dummy_series);
+        }
+
+        DataFrame::new(dummy_vars).map_err(OaxacaError::from)
+    }
+
+    fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<SinglePassResult, OaxacaError> {
         let unique_groups = df.column(&self.group)?.unique()?.sort(false, false);
         if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups for comparison".to_string())); }
 
@@ -171,25 +233,83 @@ impl OaxacaBuilder {
         let df_b = df.filter(&df.column(&self.group)?.equal(group_b_name)?)?;
         if df_a.height() == 0 || df_b.height() == 0 { return Err(OaxacaError::InvalidGroupVariable("One group has no data".to_string())); }
 
-        let (x_a, y_a, predictor_names) = self.prepare_data(&df_a)?;
-        let (x_b, y_b, _) = self.prepare_data(&df_b)?;
-        let ols_a = ols(&y_a, &x_a)?; let ols_b = ols(&y_b, &x_b)?;
-        let xa_mean = x_a.row_mean().transpose(); let xb_mean = x_b.row_mean().transpose();
+        let (x_a, y_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names)?;
+        let (x_b, y_b, _) = self.prepare_data(&df_b, all_dummy_names)?;
 
-        let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, &ols_a.coefficients, &ols_b.coefficients);
-        let two_fold = two_fold_from_three_fold(&three_fold, &ReferenceCoefficients::GroupB);
-        let (detailed_explained, detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, &ols_a.coefficients, &ols_b.coefficients, &predictor_names);
+        let mut ols_a = ols(&y_a, &x_a)?;
+        let mut ols_b = ols(&y_b, &x_b)?;
+
+        let xa_mean = x_a.row_mean().transpose();
+        let xb_mean = x_b.row_mean().transpose();
+
+        if !self.normalization_vars.is_empty() {
+            normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean);
+            normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean);
+        }
+
+        let beta_a = &ols_a.coefficients;
+        let beta_b = &ols_b.coefficients;
+
+        let beta_star_owned: DVector<f64>;
+        let beta_star: &DVector<f64> = match self.reference_coeffs {
+            ReferenceCoefficients::GroupA => beta_a,
+            ReferenceCoefficients::GroupB => beta_b,
+            ReferenceCoefficients::Pooled => {
+                let mut ols_pooled = pooled_ols(&y_a, &x_a, &y_b, &x_b)?;
+                if !self.normalization_vars.is_empty() {
+                    let n_a = df_a.height() as f64;
+                    let n_b = df_b.height() as f64;
+                    let x_pool_mean = (xa_mean.clone() * n_a + xb_mean.clone() * n_b) / (n_a + n_b);
+                    normalize_categorical_coefficients(&mut ols_pooled, &predictor_names, &self.normalization_vars, &x_pool_mean);
+                }
+                beta_star_owned = ols_pooled.coefficients;
+                &beta_star_owned
+            }
+            ReferenceCoefficients::Weighted => {
+                let n_a = df_a.height() as f64;
+                let n_b = df_b.height() as f64;
+                let total_n = n_a + n_b;
+                if total_n == 0.0 {
+                    return Err(OaxacaError::InvalidGroupVariable("No data in groups for weighted coefficients.".to_string()));
+                }
+                let weight_a = n_a / total_n;
+                let weight_b = 1.0 - weight_a; // Avoids a second division
+                beta_star_owned = beta_a * weight_a + beta_b * weight_b;
+                &beta_star_owned
+            }
+        };
+
+        let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
+        let two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
+        let (detailed_explained, detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
         let total_gap = y_a.mean() - y_b.mean();
+
         Ok(SinglePassResult { three_fold, two_fold, detailed_explained, detailed_unexplained, total_gap })
     }
 
     /// Executes the Oaxaca-Blinder decomposition.
     pub fn run(&self) -> Result<OaxacaResults, OaxacaError> {
-        let point_estimates = self.run_single_pass(&self.dataframe)?;
+        let mut df = self.dataframe.clone();
+        let mut all_dummy_names = Vec::new();
+        if !self.categorical_predictors.is_empty() {
+            for cat_pred in &self.categorical_predictors {
+                let series = df.column(cat_pred)?;
+                let dummies = self.create_dummies_manual(series)?;
+                for s in dummies.get_columns() {
+                    all_dummy_names.push(s.name().to_string());
+                }
+                df = df.hstack(dummies.get_columns())?;
+            }
+        }
+
+        let point_estimates = self.run_single_pass(&df, &all_dummy_names)?;
         let mut bootstrap_results: Vec<SinglePassResult> = Vec::with_capacity(self.bootstrap_reps);
-        for _ in 0..self.bootstrap_reps {
-             if let Ok(sample_df) = self.dataframe.sample_n_literal(self.dataframe.height(), true, false, None) {
-                if let Ok(result) = self.run_single_pass(&sample_df) { bootstrap_results.push(result); }
+        for i in 0..self.bootstrap_reps {
+             if let Ok(sample_df) = df.sample_n_literal(df.height(), true, false, None) {
+                match self.run_single_pass(&sample_df, &all_dummy_names) {
+                    Ok(result) => bootstrap_results.push(result),
+                    Err(e) => eprintln!("Bootstrap iteration {} failed: {}", i, e),
+                }
             }
         }
 
@@ -273,17 +393,34 @@ impl OaxacaResults {
         println!("Two-Fold Decomposition");
         println!("{}", two_fold_table);
 
-        let mut unexplained_table = Table::new();
-        unexplained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value"]);
-        for component in self.three_fold.detailed() { // Changed to use three_fold detailed for unexplained
-             unexplained_table.add_row(vec![
+        let mut explained_table = Table::new();
+        explained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value", "95% CI"]);
+        for component in self.two_fold.detailed() {
+            let ci = format!("[{:.3}, {:.3}]", component.ci_lower(), component.ci_upper());
+            explained_table.add_row(vec![
                 Cell::new(component.name()),
                 Cell::new(format!("{:.4}", component.estimate())),
                 Cell::new(format!("{:.4}", component.std_err())),
                 Cell::new(format!("{:.4}", component.p_value())),
+                Cell::new(ci),
             ]);
         }
-        println!("Detailed Decomposition (Unexplained)");
+        println!("\nDetailed Decomposition (Explained)");
+        println!("{}", explained_table);
+
+        let mut unexplained_table = Table::new();
+        unexplained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value", "95% CI"]);
+        for component in self.three_fold.detailed() {
+            let ci = format!("[{:.3}, {:.3}]", component.ci_lower(), component.ci_upper());
+            unexplained_table.add_row(vec![
+                Cell::new(component.name()),
+                Cell::new(format!("{:.4}", component.estimate())),
+                Cell::new(format!("{:.4}", component.std_err())),
+                Cell::new(format!("{:.4}", component.p_value())),
+                Cell::new(ci),
+            ]);
+        }
+        println!("\nDetailed Decomposition (Unexplained)");
         println!("{}", unexplained_table);
     }
 }

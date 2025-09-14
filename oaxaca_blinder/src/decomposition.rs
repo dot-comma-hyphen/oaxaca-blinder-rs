@@ -1,10 +1,22 @@
 use nalgebra::DVector;
 
 /// Represents the choice of reference coefficients for the two-fold decomposition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferenceCoefficients {
+    /// Use coefficients from the advantaged group.
     GroupA,
+    /// Use coefficients from the disadvantaged group.
     GroupB,
+    /// Use coefficients from a model pooled over both groups (Neumark's method).
+    Pooled,
+    /// Use a weighted average of the two groups' coefficients (Cotton's method).
+    Weighted,
+}
+
+impl Default for ReferenceCoefficients {
+    fn default() -> Self {
+        ReferenceCoefficients::GroupB
+    }
 }
 
 /// Holds the results of the three-fold decomposition.
@@ -29,36 +41,34 @@ pub struct DetailedComponent {
     pub contribution: f64,
 }
 
+/// Computes the two-fold Oaxaca-Blinder decomposition.
+pub fn two_fold_decomposition(
+    xa_mean: &DVector<f64>,
+    xb_mean: &DVector<f64>,
+    beta_a: &DVector<f64>,
+    beta_b: &DVector<f64>,
+    beta_star: &DVector<f64>,
+) -> TwoFoldDecomposition {
+    let explained = (xa_mean - xb_mean).dot(beta_star);
+    let total_gap = xa_mean.dot(beta_a) - xb_mean.dot(beta_b);
+    let unexplained = total_gap - explained;
+    TwoFoldDecomposition { explained, unexplained }
+}
+
 /// Computes the three-fold Oaxaca-Blinder decomposition.
 pub fn three_fold_decomposition(
     xa_mean: &DVector<f64>,
     xb_mean: &DVector<f64>,
     beta_a: &DVector<f64>,
     beta_b: &DVector<f64>,
+    beta_star: &DVector<f64>,
 ) -> ThreeFoldDecomposition {
     let diff_x = xa_mean - xb_mean;
     let diff_beta = beta_a - beta_b;
-    let endowments = diff_x.dot(beta_b);
+    let endowments = diff_x.dot(beta_star);
     let coefficients = xb_mean.dot(&diff_beta);
     let interaction = diff_x.dot(&diff_beta);
     ThreeFoldDecomposition { endowments, coefficients, interaction }
-}
-
-/// Computes the two-fold decomposition from the three-fold components.
-pub fn two_fold_from_three_fold(
-    three_fold: &ThreeFoldDecomposition,
-    reference: &ReferenceCoefficients,
-) -> TwoFoldDecomposition {
-    match reference {
-        ReferenceCoefficients::GroupB => TwoFoldDecomposition {
-            explained: three_fold.endowments,
-            unexplained: three_fold.coefficients + three_fold.interaction,
-        },
-        ReferenceCoefficients::GroupA => TwoFoldDecomposition {
-            explained: three_fold.endowments + three_fold.interaction,
-            unexplained: three_fold.coefficients,
-        },
-    }
 }
 
 /// Computes the detailed decomposition for both explained and unexplained parts.
@@ -67,20 +77,29 @@ pub fn detailed_decomposition(
     xb_mean: &DVector<f64>,
     beta_a: &DVector<f64>,
     beta_b: &DVector<f64>,
+    beta_star: &DVector<f64>,
     predictor_names: &[String],
 ) -> (Vec<DetailedComponent>, Vec<DetailedComponent>) {
-    let diff_x = xa_mean - xb_mean;
-    let diff_beta = beta_a - beta_b;
+    let explained: Vec<DetailedComponent> = (0..predictor_names.len())
+        .map(|i| {
+            let contribution = (xa_mean[i] - xb_mean[i]) * beta_star[i];
+            DetailedComponent {
+                variable_name: predictor_names[i].clone(),
+                contribution,
+            }
+        })
+        .collect();
 
-    let explained = diff_x.iter().zip(beta_b.iter()).enumerate().map(|(i, (dx, b))| DetailedComponent {
-        variable_name: predictor_names[i].clone(),
-        contribution: dx * b,
-    }).collect();
-
-    let unexplained = xb_mean.iter().zip(diff_beta.iter()).enumerate().map(|(i, (x, db))| DetailedComponent {
-        variable_name: predictor_names[i].clone(),
-        contribution: x * db,
-    } ).collect();
+    let unexplained: Vec<DetailedComponent> = (0..predictor_names.len())
+        .map(|i| {
+            let contribution =
+                xa_mean[i] * (beta_a[i] - beta_star[i]) + xb_mean[i] * (beta_star[i] - beta_b[i]);
+            DetailedComponent {
+                variable_name: predictor_names[i].clone(),
+                contribution,
+            }
+        })
+        .collect();
 
     (explained, unexplained)
 }
@@ -97,21 +116,11 @@ mod tests {
         let xb_mean = DVector::from_vec(vec![1.0, 3.0]);
         let beta_a = DVector::from_vec(vec![2.0, 4.0]);
         let beta_b = DVector::from_vec(vec![1.0, 3.0]);
-        let result = three_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b);
+        let beta_star = beta_b.clone();
+        let result = three_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star);
         assert!((result.endowments - 6.0).abs() < 1e-9);
         assert!((result.coefficients - 4.0).abs() < 1e-9);
         assert!((result.interaction - 2.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn test_two_fold_decomposition() {
-        let three_fold = ThreeFoldDecomposition { endowments: 6.0, coefficients: 4.0, interaction: 2.0 };
-        let two_fold_b = two_fold_from_three_fold(&three_fold, &ReferenceCoefficients::GroupB);
-        assert!((two_fold_b.explained - 6.0).abs() < 1e-9);
-        assert!((two_fold_b.unexplained - 6.0).abs() < 1e-9);
-        let two_fold_a = two_fold_from_three_fold(&three_fold, &ReferenceCoefficients::GroupA);
-        assert!((two_fold_a.explained - 8.0).abs() < 1e-9);
-        assert!((two_fold_a.unexplained - 4.0).abs() < 1e-9);
     }
 
     #[test]
@@ -122,12 +131,42 @@ mod tests {
         let xa_mean = DVector::from_vec(vec![1.0, 5.0]);
         let xb_mean = DVector::from_vec(vec![1.0, 3.0]);
 
-        let (explained_detailed, unexplained_detailed) = detailed_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &predictor_names);
+        // Case 1: beta* = beta_b
+        let beta_star_b = beta_b.clone();
+        let (explained_detailed, unexplained_detailed) = detailed_decomposition(
+            &xa_mean,
+            &xb_mean,
+            &beta_a,
+            &beta_b,
+            &beta_star_b,
+            &predictor_names,
+        );
+        let two_fold_b =
+            two_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star_b);
 
         let total_explained: f64 = explained_detailed.iter().map(|c| c.contribution).sum();
         let total_unexplained: f64 = unexplained_detailed.iter().map(|c| c.contribution).sum();
 
-        assert!((total_explained - 6.0).abs() < 1e-9);
-        assert!((total_unexplained - 4.0).abs() < 1e-9);
+        assert!((total_explained - two_fold_b.explained).abs() < 1e-9);
+        assert!((total_unexplained - two_fold_b.unexplained).abs() < 1e-9);
+
+        // Case 2: beta* = beta_a
+        let beta_star_a = beta_a.clone();
+        let (explained_detailed_a, unexplained_detailed_a) = detailed_decomposition(
+            &xa_mean,
+            &xb_mean,
+            &beta_a,
+            &beta_b,
+            &beta_star_a,
+            &predictor_names,
+        );
+        let two_fold_a =
+            two_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star_a);
+
+        let total_explained_a: f64 = explained_detailed_a.iter().map(|c| c.contribution).sum();
+        let total_unexplained_a: f64 = unexplained_detailed_a.iter().map(|c| c.contribution).sum();
+
+        assert!((total_explained_a - two_fold_a.explained).abs() < 1e-9);
+        assert!((total_unexplained_a - two_fold_a.unexplained).abs() < 1e-9);
     }
 }

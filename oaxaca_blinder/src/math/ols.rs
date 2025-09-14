@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector};
 #[derive(Debug)]
 pub struct OlsResult {
     pub coefficients: DVector<f64>,
-    // Other fields like residuals, r_squared could be added later if needed.
+    pub vcov: DMatrix<f64>,
 }
 
 /// Performs an Ordinary Least Squares (OLS) regression.
@@ -39,10 +39,68 @@ pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>) -> Result<OlsResult, OaxacaError>
     let xty = x.transpose() * y;
 
     // Calculate the coefficients: β = (X'X)⁻¹ * X'y
-    let coefficients = xtx_inv * xty;
+    let coefficients = &xtx_inv * xty;
 
-    Ok(OlsResult { coefficients })
+    // Calculate residuals
+    let y_hat = x * &coefficients;
+    let residuals = y - y_hat;
+
+    // Calculate residual variance
+    let n = x.nrows() as f64;
+    let k = x.ncols() as f64;
+    let sse = residuals.transpose() * residuals;
+    let sigma_squared = sse[(0, 0)] / (n - k);
+
+    // Calculate variance-covariance matrix
+    let vcov = xtx_inv * sigma_squared;
+
+    Ok(OlsResult { coefficients, vcov })
 }
+
+/// Performs a pooled Ordinary Least Squares (OLS) regression on two groups of data.
+///
+/// This function combines the data from two groups (A and B) and runs a single
+/// OLS regression. It's equivalent to stacking the data matrices vertically and
+/// concatenating the outcome vectors.
+///
+/// # Arguments
+///
+/// * `y_a` - Outcome vector for group A.
+/// * `x_a` - Predictor matrix for group A.
+/// * `y_b` - Outcome vector for group B.
+/// * `x_b` - Predictor matrix for group B.
+///
+/// # Returns
+///
+/// A `Result` containing the `OlsResult` on success, or an `OaxacaError`.
+pub fn pooled_ols(
+    y_a: &DVector<f64>,
+    x_a: &DMatrix<f64>,
+    y_b: &DVector<f64>,
+    x_b: &DMatrix<f64>,
+) -> Result<OlsResult, OaxacaError> {
+    // Ensure the number of predictors is the same for both groups.
+    if x_a.ncols() != x_b.ncols() {
+        return Err(OaxacaError::NalgebraError(
+            "Predictor matrices must have the same number of columns for pooled OLS.".to_string(),
+        ));
+    }
+
+    // Combine the outcome vectors.
+    let y_pooled = DVector::from_iterator(
+        y_a.len() + y_b.len(),
+        y_a.iter().chain(y_b.iter()).copied(),
+    );
+
+    // Combine the predictor matrices.
+    let x_pooled = DMatrix::from_rows(
+        &[x_a.row_iter().collect::<Vec<_>>(), x_b.row_iter().collect::<Vec<_>>()].concat(),
+    );
+
+    // Run OLS on the combined data.
+    ols(&y_pooled, &x_pooled)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -100,5 +158,23 @@ mod tests {
             }
             _ => panic!("Expected a NalgebraError for a singular matrix, but got something else."),
         }
+    }
+
+    #[test]
+    fn test_pooled_ols() {
+        // Group A: y = 1 + 2x
+        let x_a = DMatrix::from_vec(3, 2, vec![1.0, 1.0, 1.0, 0.0, 1.0, 2.0]);
+        let y_a = DVector::from_vec(vec![1.0, 3.0, 5.0]);
+
+        // Group B: y = 1 + 2x (same model)
+        let x_b = DMatrix::from_vec(2, 2, vec![1.0, 1.0, 3.0, 4.0]);
+        let y_b = DVector::from_vec(vec![7.0, 9.0]);
+
+        let result = pooled_ols(&y_a, &x_a, &y_b, &x_b).expect("Pooled OLS failed");
+        let coeffs = result.coefficients;
+
+        assert_eq!(coeffs.len(), 2);
+        assert!((coeffs[0] - 1.0).abs() < 1e-9);
+        assert!((coeffs[1] - 2.0).abs() < 1e-9);
     }
 }
