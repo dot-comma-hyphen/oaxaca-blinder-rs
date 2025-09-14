@@ -1,16 +1,16 @@
 [package]
 name = "oaxaca_blinder"
 version = "0.1.0"
+authors = ["dot-comma-hyphen <poche450@gmail.com>"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[[bin]]
-name = "test_app"
-path = "src/main.rs"
+description = "A Rust library for performing Oaxaca-Blinder decomposition on Polars DataFrames, with support for categorical variables and bootstrapped standard errors. "
+license = "MIT"
+repository = "https://github.com/dot-comma-hyphen/oaxaca-blinder-rs"
+readme = "README.md"
+keywords = ["statistics", "economics", "oaxaca-blinder"]
+categories = ["science"]
 
-[[bin]]
-name = "generate_data"
-path = "src/bin/generate_data.rs"
 
 [dependencies]
 getset = "0.1.2"
