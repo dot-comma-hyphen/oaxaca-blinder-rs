@@ -82,6 +82,7 @@ fn test_with_categorical_variable() {
     let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
         .predictors(&["education"])
         .categorical_predictors(&["union"])
+        .normalize(&["union"])
         .bootstrap_reps(5);
 
     run_and_check(builder, 10.0);

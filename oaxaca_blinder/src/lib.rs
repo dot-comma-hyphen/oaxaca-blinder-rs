@@ -45,6 +45,7 @@ use crate::decomposition::{
     three_fold_decomposition, two_fold_decomposition, detailed_decomposition,
     ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent,
 };
+use crate::math::normalization::normalize_categorical_coefficients;
 use crate::inference::bootstrap_stats;
 pub use crate::decomposition::ReferenceCoefficients;
 
@@ -91,6 +92,7 @@ pub struct OaxacaBuilder {
     reference_group: String,
     bootstrap_reps: usize,
     reference_coeffs: ReferenceCoefficients,
+    normalization_vars: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -121,6 +123,7 @@ impl OaxacaBuilder {
             reference_group: reference_group.to_string(),
             bootstrap_reps: 100,
             reference_coeffs: ReferenceCoefficients::default(),
+            normalization_vars: Vec::new(),
         }
     }
 
@@ -159,6 +162,16 @@ impl OaxacaBuilder {
     /// * `reps` - The number of bootstrap samples to generate. Defaults to 100.
     pub fn bootstrap_reps(mut self, reps: usize) -> Self {
         self.bootstrap_reps = reps;
+        self
+    }
+
+    /// Sets the categorical variables for which to apply coefficient normalization.
+    ///
+    /// # Arguments
+    ///
+    /// * `vars` - A slice of strings representing the column names of the categorical variables to normalize.
+    pub fn normalize(mut self, vars: &[&str]) -> Self {
+        self.normalization_vars = vars.iter().map(|s| s.to_string()).collect();
         self
     }
 
@@ -223,8 +236,16 @@ impl OaxacaBuilder {
         let (x_a, y_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names)?;
         let (x_b, y_b, _) = self.prepare_data(&df_b, all_dummy_names)?;
 
-        let ols_a = ols(&y_a, &x_a)?;
-        let ols_b = ols(&y_b, &x_b)?;
+        let mut ols_a = ols(&y_a, &x_a)?;
+        let mut ols_b = ols(&y_b, &x_b)?;
+
+        let xa_mean = x_a.row_mean().transpose();
+        let xb_mean = x_b.row_mean().transpose();
+
+        if !self.normalization_vars.is_empty() {
+            normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean);
+            normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean);
+        }
 
         let beta_a = &ols_a.coefficients;
         let beta_b = &ols_b.coefficients;
@@ -234,7 +255,13 @@ impl OaxacaBuilder {
             ReferenceCoefficients::GroupA => beta_a,
             ReferenceCoefficients::GroupB => beta_b,
             ReferenceCoefficients::Pooled => {
-                let ols_pooled = pooled_ols(&y_a, &x_a, &y_b, &x_b)?;
+                let mut ols_pooled = pooled_ols(&y_a, &x_a, &y_b, &x_b)?;
+                if !self.normalization_vars.is_empty() {
+                    let n_a = df_a.height() as f64;
+                    let n_b = df_b.height() as f64;
+                    let x_pool_mean = (xa_mean.clone() * n_a + xb_mean.clone() * n_b) / (n_a + n_b);
+                    normalize_categorical_coefficients(&mut ols_pooled, &predictor_names, &self.normalization_vars, &x_pool_mean);
+                }
                 beta_star_owned = ols_pooled.coefficients;
                 &beta_star_owned
             }
@@ -251,9 +278,6 @@ impl OaxacaBuilder {
                 &beta_star_owned
             }
         };
-
-        let xa_mean = x_a.row_mean().transpose();
-        let xb_mean = x_b.row_mean().transpose();
 
         let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
         let two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
