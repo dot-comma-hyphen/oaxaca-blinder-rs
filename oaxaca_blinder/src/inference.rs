@@ -1,7 +1,7 @@
 //! This module contains functions for statistical inference, primarily bootstrapping.
 
 /// Calculates the standard error, p-value, and confidence interval from a vector of bootstrap estimates.
-pub fn bootstrap_stats(estimates: &[f64], point_estimate: f64) -> (f64, f64, (f64, f64)) {
+pub fn bootstrap_stats(estimates: &[f64], _point_estimate: f64) -> (f64, f64, (f64, f64)) {
     if estimates.is_empty() {
         return (f64::NAN, f64::NAN, (f64::NAN, f64::NAN));
     }
@@ -10,10 +10,11 @@ pub fn bootstrap_stats(estimates: &[f64], point_estimate: f64) -> (f64, f64, (f6
     let mean: f64 = estimates.iter().sum::<f64>() / n;
     let std_err = (estimates.iter().map(|&val| (val - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
 
-    // p-value: Two-tailed test for whether the estimate is different from zero.
-    // This is calculated as the proportion of bootstrap estimates that are more extreme than the negative of the absolute point estimate.
-    let p_value_proportion = estimates.iter().filter(|&&val| val.abs() > point_estimate.abs()).count();
-    let p_value = (p_value_proportion as f64) / n;
+    // p-value: Two-tailed test using the percentile method.
+    // p = 2 * min(proportion_of_estimates <= 0, proportion_of_estimates >= 0)
+    let prop_le_zero = estimates.iter().filter(|&&val| val <= 0.0).count() as f64 / n;
+    let prop_ge_zero = estimates.iter().filter(|&&val| val >= 0.0).count() as f64 / n;
+    let p_value = 2.0 * prop_le_zero.min(prop_ge_zero);
     // A more standard way for symmetric distributions:
     // let z_score = point_estimate / std_err;
     // let p_value = 2.0 * (1.0 - distrs::Normal::new(0.0, 1.0).unwrap().cdf(z_score.abs()));
