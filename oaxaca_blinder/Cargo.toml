@@ -14,7 +14,7 @@ categories = ["science"]
 
 [dependencies]
 getset = "0.1.2"
-nalgebra = "0.34.0"
-polars = { version = "0.50.0", features = ["lazy", "csv", "ndarray", "random"] }
+nalgebra = "0.32.3"
+polars = { version = "0.38.3", features = ["lazy", "csv", "ndarray", "random"] }
 comfy-table = "7.0.1"
 rayon = "1.11.0"
