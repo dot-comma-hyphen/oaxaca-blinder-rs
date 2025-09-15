@@ -208,10 +208,17 @@ impl OaxacaBuilder {
         Ok((DMatrix::from_row_slice(x_df_selected.height(), x_df_selected.width(), &x_vec), y, final_names))
     }
 
-    fn create_dummies_manual(&self, series: &Series) -> Result<(DataFrame, usize), OaxacaError> {
+    fn create_dummies_manual(&self, series: &Series) -> Result<(DataFrame, usize, String), OaxacaError> {
         let unique_vals = series.unique()?.sort(false, false);
         let m = unique_vals.len();
         let mut dummy_vars: Vec<Series> = Vec::new();
+
+        let reference_val = if let Some(s) = unique_vals.str()?.get(0) {
+            s
+        } else {
+            return Err(OaxacaError::InvalidGroupVariable(format!("Could not get reference category for {}", series.name())));
+        };
+        let reference_name = format!("{}_{}", series.name(), reference_val);
 
         for val in unique_vals.str()?.into_iter().flatten().skip(1) { // Skip the first category as the reference
             let dummy_name = format!("{}_{}", series.name(), val);
@@ -222,10 +229,10 @@ impl OaxacaBuilder {
             dummy_vars.push(dummy_series);
         }
 
-        Ok((DataFrame::new(dummy_vars).map_err(OaxacaError::from)?, m))
+        Ok((DataFrame::new(dummy_vars).map_err(OaxacaError::from)?, m, reference_name))
     }
 
-    fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String], category_counts: &std::collections::HashMap<String, usize>) -> Result<SinglePassResult, OaxacaError> {
+    fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String], category_counts: &std::collections::HashMap<String, usize>, base_categories: &std::collections::HashMap<String, String>) -> Result<SinglePassResult, OaxacaError> {
         let unique_groups = df.column(&self.group)?.unique()?.sort(false, false);
         if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups for comparison".to_string())); }
 
@@ -246,18 +253,27 @@ impl OaxacaBuilder {
         let xa_mean = x_a.row_mean().transpose();
         let xb_mean = x_b.row_mean().transpose();
 
+        let mut base_coeffs_a = std::collections::HashMap::new();
+        let mut base_coeffs_b = std::collections::HashMap::new();
         if !self.normalization_vars.is_empty() {
-            normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean, category_counts);
-            normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean, category_counts);
+            base_coeffs_a = normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean, category_counts);
+            base_coeffs_b = normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean, category_counts);
         }
 
         let beta_a = &ols_a.coefficients;
         let beta_b = &ols_b.coefficients;
 
+        let mut base_coeffs_star = std::collections::HashMap::new();
         let beta_star_owned: DVector<f64>;
         let beta_star: &DVector<f64> = match self.reference_coeffs {
-            ReferenceCoefficients::GroupA => beta_a,
-            ReferenceCoefficients::GroupB => beta_b,
+            ReferenceCoefficients::GroupA => {
+                base_coeffs_star = base_coeffs_a.clone();
+                beta_a
+            }
+            ReferenceCoefficients::GroupB => {
+                base_coeffs_star = base_coeffs_b.clone();
+                beta_b
+            }
             ReferenceCoefficients::Pooled => {
                 let mut df_pooled = df_a.vstack(&df_b)?;
                 let group_indicator = Series::new("group_indicator", df_pooled.column(&self.group)?.equal(group_a_name)?.into_series().cast(&DataType::Float64)?);
@@ -271,7 +287,7 @@ impl OaxacaBuilder {
                     let n_a = df_a.height() as f64;
                     let n_b = df_b.height() as f64;
                     let x_pool_mean = (xa_mean.clone() * n_a + xb_mean.clone() * n_b) / (n_a + n_b);
-                    normalize_categorical_coefficients(&mut ols_pooled, &pooled_predictor_names, &self.normalization_vars, &x_pool_mean, category_counts);
+                    base_coeffs_star = normalize_categorical_coefficients(&mut ols_pooled, &pooled_predictor_names, &self.normalization_vars, &x_pool_mean, category_counts);
                 }
                 beta_star_owned = ols_pooled.coefficients.rows(0, ols_pooled.coefficients.len() - 1).clone_owned();
                 &beta_star_owned
@@ -284,7 +300,14 @@ impl OaxacaBuilder {
                     return Err(OaxacaError::InvalidGroupVariable("No data in groups for weighted coefficients.".to_string()));
                 }
                 let weight_a = n_a / total_n;
-                let weight_b = 1.0 - weight_a; // Avoids a second division
+                let weight_b = 1.0 - weight_a;
+                if !self.normalization_vars.is_empty() {
+                    for var in &self.normalization_vars {
+                        let coeff_a = base_coeffs_a.get(var).unwrap_or(&0.0);
+                        let coeff_b = base_coeffs_b.get(var).unwrap_or(&0.0);
+                        base_coeffs_star.insert(var.clone(), coeff_a * weight_a + coeff_b * weight_b);
+                    }
+                }
                 beta_star_owned = beta_a * weight_a + beta_b * weight_b;
                 &beta_star_owned
             }
@@ -292,7 +315,40 @@ impl OaxacaBuilder {
 
         let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b);
         let two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
-        let (detailed_explained, detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
+        let (detailed_explained, mut detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
+
+        if !self.normalization_vars.is_empty() {
+            for var in &self.normalization_vars {
+                let base_dummy_name = if let Some(name) = base_categories.get(var) {
+                    name
+                } else {
+                    continue;
+                };
+
+                let dummy_indices: Vec<usize> = predictor_names
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, name)| name.starts_with(&format!("{}_", var)))
+                    .map(|(i, _)| i)
+                    .collect();
+
+                let xa_mean_base = 1.0 - dummy_indices.iter().map(|&i| xa_mean[i]).sum::<f64>();
+                let xb_mean_base = 1.0 - dummy_indices.iter().map(|&i| xb_mean[i]).sum::<f64>();
+
+                let beta_a_base = base_coeffs_a.get(var).cloned().unwrap_or(0.0);
+                let beta_b_base = base_coeffs_b.get(var).cloned().unwrap_or(0.0);
+                let beta_star_base = base_coeffs_star.get(var).cloned().unwrap_or(0.0);
+
+                let contribution =
+                    xa_mean_base * (beta_a_base - beta_star_base) + xb_mean_base * (beta_star_base - beta_b_base);
+
+                detailed_unexplained.push(DetailedComponent {
+                    variable_name: base_dummy_name.clone(),
+                    contribution,
+                });
+            }
+        }
+
         let total_gap = y_a.mean() - y_b.mean();
 
         Ok(SinglePassResult { three_fold, two_fold, detailed_explained, detailed_unexplained, total_gap })
@@ -303,11 +359,13 @@ impl OaxacaBuilder {
         let mut df = self.dataframe.clone();
         let mut all_dummy_names = Vec::new();
         let mut category_counts = std::collections::HashMap::new();
+        let mut base_categories = std::collections::HashMap::new();
         if !self.categorical_predictors.is_empty() {
             for cat_pred in &self.categorical_predictors {
                 let series = df.column(cat_pred)?;
-                let (dummies, m) = self.create_dummies_manual(series)?;
+                let (dummies, m, base_name) = self.create_dummies_manual(series)?;
                 category_counts.insert(cat_pred.clone(), m);
+                base_categories.insert(cat_pred.clone(), base_name);
                 for s in dummies.get_columns() {
                     all_dummy_names.push(s.name().to_string());
                 }
@@ -315,15 +373,27 @@ impl OaxacaBuilder {
             }
         }
 
-        let point_estimates = self.run_single_pass(&df, &all_dummy_names, &category_counts)?;
+        let point_estimates = self.run_single_pass(&df, &all_dummy_names, &category_counts, &base_categories)?;
         let mut bootstrap_results: Vec<SinglePassResult> = Vec::with_capacity(self.bootstrap_reps);
-        for i in 0..self.bootstrap_reps {
-             if let Ok(sample_df) = df.sample_n_literal(df.height(), true, false, None) {
-                match self.run_single_pass(&sample_df, &all_dummy_names, &category_counts) {
+        let mut failed_bootstraps = 0;
+        for _ in 0..self.bootstrap_reps {
+            if let Ok(sample_df) = df.sample_n_literal(df.height(), true, false, None) {
+                match self.run_single_pass(&sample_df, &all_dummy_names, &category_counts, &base_categories) {
                     Ok(result) => bootstrap_results.push(result),
-                    Err(e) => eprintln!("Bootstrap iteration {} failed: {}", i, e),
+                    Err(_) => {
+                        failed_bootstraps += 1;
+                    }
                 }
+            } else {
+                failed_bootstraps += 1;
             }
+        }
+
+        if failed_bootstraps > 0 {
+            eprintln!(
+                "Warning: {} out of {} bootstrap replications failed and were discarded. The analysis is based on {} successful replications.",
+                failed_bootstraps, self.bootstrap_reps, self.bootstrap_reps - failed_bootstraps
+            );
         }
 
         let process_component = |name: &str, point: f64, estimates: Vec<f64>| {
