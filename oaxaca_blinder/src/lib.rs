@@ -373,26 +373,24 @@ impl OaxacaBuilder {
             }
         }
 
-        let point_estimates = self.run_single_pass(&df, &all_dummy_names, &category_counts, &base_categories)?;
-        let mut bootstrap_results: Vec<SinglePassResult> = Vec::with_capacity(self.bootstrap_reps);
-        let mut failed_bootstraps = 0;
-        for _ in 0..self.bootstrap_reps {
-            if let Ok(sample_df) = df.sample_n_literal(df.height(), true, false, None) {
-                match self.run_single_pass(&sample_df, &all_dummy_names, &category_counts, &base_categories) {
-                    Ok(result) => bootstrap_results.push(result),
-                    Err(_) => {
-                        failed_bootstraps += 1;
-                    }
-                }
-            } else {
-                failed_bootstraps += 1;
-            }
-        }
+        use rayon::prelude::*;
 
-        if failed_bootstraps > 0 {
+        let point_estimates = self.run_single_pass(&df, &all_dummy_names, &category_counts, &base_categories)?;
+
+        let bootstrap_results: Vec<SinglePassResult> = (0..self.bootstrap_reps)
+            .into_par_iter()
+            .filter_map(|_| {
+                df.sample_n_literal(df.height(), true, false, None)
+                    .ok()
+                    .and_then(|sample_df| self.run_single_pass(&sample_df, &all_dummy_names, &category_counts, &base_categories).ok())
+            })
+            .collect();
+
+        let successful_bootstraps = bootstrap_results.len();
+        if successful_bootstraps < self.bootstrap_reps {
             eprintln!(
                 "Warning: {} out of {} bootstrap replications failed and were discarded. The analysis is based on {} successful replications.",
-                failed_bootstraps, self.bootstrap_reps, self.bootstrap_reps - failed_bootstraps
+                self.bootstrap_reps - successful_bootstraps, self.bootstrap_reps, successful_bootstraps
             );
         }
 
