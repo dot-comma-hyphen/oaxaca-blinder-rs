@@ -344,12 +344,28 @@ impl OaxacaBuilder {
 
         Ok(OaxacaResults {
             total_gap: point_estimates.total_gap,
-            two_fold: DecompositionDetail { aggregate: two_fold_agg, detailed: detailed_explained },
-            three_fold: DecompositionDetail { aggregate: three_fold_agg, detailed: detailed_unexplained },
+            two_fold: TwoFoldResults {
+                aggregate: two_fold_agg,
+                detailed_explained,
+                detailed_unexplained,
+            },
+            three_fold: DecompositionDetail { aggregate: three_fold_agg, detailed: Vec::new() },
             n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
             n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
         })
     }
+}
+
+/// Holds results for the two-fold decomposition, including detailed components.
+#[derive(Debug, Getters)]
+#[getset(get = "pub")]
+pub struct TwoFoldResults {
+    /// Aggregate results for the explained and unexplained components.
+    aggregate: Vec<ComponentResult>,
+    /// Detailed results for the explained component, broken down by variable.
+    detailed_explained: Vec<ComponentResult>,
+    /// Detailed results for the unexplained component, broken down by variable.
+    detailed_unexplained: Vec<ComponentResult>,
 }
 
 /// Holds all the results from the Oaxaca-Blinder decomposition.
@@ -359,7 +375,7 @@ pub struct OaxacaResults {
     /// The total difference in the mean outcome between the two groups.
     total_gap: f64,
     /// The results of the two-fold decomposition.
-    two_fold: DecompositionDetail,
+    two_fold: TwoFoldResults,
     /// The results of the three-fold decomposition.
     three_fold: DecompositionDetail,
     /// The number of observations in the advantaged group (Group A).
@@ -395,7 +411,7 @@ impl OaxacaResults {
 
         let mut explained_table = Table::new();
         explained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value", "95% CI"]);
-        for component in self.two_fold.detailed() {
+        for component in self.two_fold.detailed_explained() {
             let ci = format!("[{:.3}, {:.3}]", component.ci_lower(), component.ci_upper());
             explained_table.add_row(vec![
                 Cell::new(component.name()),
@@ -410,7 +426,7 @@ impl OaxacaResults {
 
         let mut unexplained_table = Table::new();
         unexplained_table.set_header(vec!["Variable", "Contribution", "Std. Err.", "p-value", "95% CI"]);
-        for component in self.three_fold.detailed() {
+        for component in self.two_fold.detailed_unexplained() {
             let ci = format!("[{:.3}, {:.3}]", component.ci_lower(), component.ci_upper());
             unexplained_table.add_row(vec![
                 Cell::new(component.name()),
