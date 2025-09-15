@@ -205,8 +205,9 @@ impl OaxacaBuilder {
         Ok((DMatrix::from_row_slice(x_df_selected.height(), x_df_selected.width(), &x_vec), y, final_names))
     }
 
-    fn create_dummies_manual(&self, series: &Series) -> Result<DataFrame, OaxacaError> {
+    fn create_dummies_manual(&self, series: &Series) -> Result<(DataFrame, usize), OaxacaError> {
         let unique_vals = series.unique()?.sort(false, false);
+        let m = unique_vals.len();
         let mut dummy_vars: Vec<Series> = Vec::new();
 
         for val in unique_vals.str()?.into_iter().flatten().skip(1) { // Skip the first category as the reference
@@ -218,10 +219,10 @@ impl OaxacaBuilder {
             dummy_vars.push(dummy_series);
         }
 
-        DataFrame::new(dummy_vars).map_err(OaxacaError::from)
+        Ok((DataFrame::new(dummy_vars).map_err(OaxacaError::from)?, m))
     }
 
-    fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<SinglePassResult, OaxacaError> {
+    fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String], category_counts: &std::collections::HashMap<String, usize>) -> Result<SinglePassResult, OaxacaError> {
         let unique_groups = df.column(&self.group)?.unique()?.sort(false, false);
         if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups for comparison".to_string())); }
 
@@ -243,8 +244,8 @@ impl OaxacaBuilder {
         let xb_mean = x_b.row_mean().transpose();
 
         if !self.normalization_vars.is_empty() {
-            normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean);
-            normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean);
+            normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean, category_counts);
+            normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean, category_counts);
         }
 
         let beta_a = &ols_a.coefficients;
@@ -260,7 +261,7 @@ impl OaxacaBuilder {
                     let n_a = df_a.height() as f64;
                     let n_b = df_b.height() as f64;
                     let x_pool_mean = (xa_mean.clone() * n_a + xb_mean.clone() * n_b) / (n_a + n_b);
-                    normalize_categorical_coefficients(&mut ols_pooled, &predictor_names, &self.normalization_vars, &x_pool_mean);
+                    normalize_categorical_coefficients(&mut ols_pooled, &predictor_names, &self.normalization_vars, &x_pool_mean, category_counts);
                 }
                 beta_star_owned = ols_pooled.coefficients;
                 &beta_star_owned
@@ -291,10 +292,12 @@ impl OaxacaBuilder {
     pub fn run(&self) -> Result<OaxacaResults, OaxacaError> {
         let mut df = self.dataframe.clone();
         let mut all_dummy_names = Vec::new();
+        let mut category_counts = std::collections::HashMap::new();
         if !self.categorical_predictors.is_empty() {
             for cat_pred in &self.categorical_predictors {
                 let series = df.column(cat_pred)?;
-                let dummies = self.create_dummies_manual(series)?;
+                let (dummies, m) = self.create_dummies_manual(series)?;
+                category_counts.insert(cat_pred.clone(), m);
                 for s in dummies.get_columns() {
                     all_dummy_names.push(s.name().to_string());
                 }
@@ -302,11 +305,11 @@ impl OaxacaBuilder {
             }
         }
 
-        let point_estimates = self.run_single_pass(&df, &all_dummy_names)?;
+        let point_estimates = self.run_single_pass(&df, &all_dummy_names, &category_counts)?;
         let mut bootstrap_results: Vec<SinglePassResult> = Vec::with_capacity(self.bootstrap_reps);
         for i in 0..self.bootstrap_reps {
              if let Ok(sample_df) = df.sample_n_literal(df.height(), true, false, None) {
-                match self.run_single_pass(&sample_df, &all_dummy_names) {
+                match self.run_single_pass(&sample_df, &all_dummy_names, &category_counts) {
                     Ok(result) => bootstrap_results.push(result),
                     Err(e) => eprintln!("Bootstrap iteration {} failed: {}", i, e),
                 }
