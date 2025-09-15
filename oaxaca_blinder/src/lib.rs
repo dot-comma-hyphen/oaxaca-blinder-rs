@@ -280,7 +280,7 @@ impl OaxacaBuilder {
             }
         };
 
-        let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
+        let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b);
         let two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
         let (detailed_explained, detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
         let total_gap = y_a.mean() - y_b.mean();
