@@ -289,7 +289,9 @@ impl OaxacaBuilder {
                     let x_pool_mean = (xa_mean.clone() * n_a + xb_mean.clone() * n_b) / (n_a + n_b);
                     base_coeffs_star = normalize_categorical_coefficients(&mut ols_pooled, &pooled_predictor_names, &self.normalization_vars, &x_pool_mean, category_counts);
                 }
-                beta_star_owned = ols_pooled.coefficients.rows(0, ols_pooled.coefficients.len() - 1).clone_owned();
+                let group_indicator_idx = pooled_predictor_names.iter().position(|r| r == "group_indicator")
+                    .ok_or_else(|| OaxacaError::NalgebraError("group_indicator not found in pooled model predictors".to_string()))?;
+                beta_star_owned = ols_pooled.coefficients.remove_row(group_indicator_idx);
                 &beta_star_owned
             }
             ReferenceCoefficients::Weighted => {
