@@ -40,7 +40,7 @@ mod math;
 mod decomposition;
 mod inference;
 
-use crate::math::ols::{ols, pooled_ols};
+use crate::math::ols::{ols};
 use crate::decomposition::{
     three_fold_decomposition, two_fold_decomposition, detailed_decomposition,
     ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent,
@@ -176,16 +176,19 @@ impl OaxacaBuilder {
     }
 
 
-    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
+    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String], extra_predictors: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
         let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
         let y = DVector::from_vec(y_vec);
 
+        let mut current_predictors = self.predictors.clone();
+        current_predictors.extend_from_slice(extra_predictors);
+
         let mut final_predictors: Vec<String> = vec!["intercept".to_string()];
-        final_predictors.extend_from_slice(&self.predictors);
+        final_predictors.extend_from_slice(&current_predictors);
         final_predictors.extend_from_slice(all_dummy_names);
 
-        let mut x_df = df.select(&self.predictors)?;
+        let mut x_df = df.select(&current_predictors)?;
         let intercept_series = Series::new("intercept", vec![1.0; df.height()]);
         x_df.with_column(intercept_series)?;
 
@@ -234,8 +237,8 @@ impl OaxacaBuilder {
         let df_b = df.filter(&df.column(&self.group)?.equal(group_b_name)?)?;
         if df_a.height() == 0 || df_b.height() == 0 { return Err(OaxacaError::InvalidGroupVariable("One group has no data".to_string())); }
 
-        let (x_a, y_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names)?;
-        let (x_b, y_b, _) = self.prepare_data(&df_b, all_dummy_names)?;
+        let (x_a, y_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names, &[])?;
+        let (x_b, y_b, _) = self.prepare_data(&df_b, all_dummy_names, &[])?;
 
         let mut ols_a = ols(&y_a, &x_a)?;
         let mut ols_b = ols(&y_b, &x_b)?;
@@ -256,14 +259,21 @@ impl OaxacaBuilder {
             ReferenceCoefficients::GroupA => beta_a,
             ReferenceCoefficients::GroupB => beta_b,
             ReferenceCoefficients::Pooled => {
-                let mut ols_pooled = pooled_ols(&y_a, &x_a, &y_b, &x_b)?;
+                let mut df_pooled = df_a.vstack(&df_b)?;
+                let group_indicator = Series::new("group_indicator", df_pooled.column(&self.group)?.equal(group_a_name)?.into_series().cast(&DataType::Float64)?);
+                df_pooled.with_column(group_indicator)?;
+
+                let (x_pooled, y_pooled, pooled_predictor_names) = self.prepare_data(&df_pooled, all_dummy_names, &["group_indicator".to_string()])?;
+                
+                let mut ols_pooled = ols(&y_pooled, &x_pooled)?;
+
                 if !self.normalization_vars.is_empty() {
                     let n_a = df_a.height() as f64;
                     let n_b = df_b.height() as f64;
                     let x_pool_mean = (xa_mean.clone() * n_a + xb_mean.clone() * n_b) / (n_a + n_b);
-                    normalize_categorical_coefficients(&mut ols_pooled, &predictor_names, &self.normalization_vars, &x_pool_mean, category_counts);
+                    normalize_categorical_coefficients(&mut ols_pooled, &pooled_predictor_names, &self.normalization_vars, &x_pool_mean, category_counts);
                 }
-                beta_star_owned = ols_pooled.coefficients;
+                beta_star_owned = ols_pooled.coefficients.rows(0, ols_pooled.coefficients.len() - 1).clone_owned();
                 &beta_star_owned
             }
             ReferenceCoefficients::Weighted => {
