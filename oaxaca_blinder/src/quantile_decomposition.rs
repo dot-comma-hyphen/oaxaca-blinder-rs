@@ -58,35 +58,35 @@ impl QuantileDecompositionBuilder {
         }
     }
 
-    pub fn predictors(mut self, predictors: &[&str]) -> Self {
+    pub fn predictors(&mut self, predictors: &[&str]) -> &mut Self {
         self.predictors = predictors.iter().map(|s| s.to_string()).collect();
         self
     }
 
-    pub fn categorical_predictors(mut self, predictors: &[&str]) -> Self {
+    pub fn categorical_predictors(&mut self, predictors: &[&str]) -> &mut Self {
         self.categorical_predictors = predictors.iter().map(|s| s.to_string()).collect();
         self
     }
 
-    pub fn quantiles(mut self, quantiles: &[f64]) -> Self {
+    pub fn quantiles(&mut self, quantiles: &[f64]) -> &mut Self {
         self.quantiles = quantiles.to_vec();
         self
     }
 
-    pub fn simulations(mut self, reps: usize) -> Self {
+    pub fn simulations(&mut self, reps: usize) -> &mut Self {
         self.simulations = reps;
         self
     }
 
-    pub fn bootstrap_reps(mut self, reps: usize) -> Self {
+    pub fn bootstrap_reps(&mut self, reps: usize) -> &mut Self {
         self.bootstrap_reps = reps;
         self
     }
 
-    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
+    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<(Array2<f64>, Array1<f64>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
         let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
-        let y = DVector::from_vec(y_vec);
+        let y = Array1::from_vec(y_vec);
 
         let mut final_predictors: Vec<String> = vec!["intercept".to_string()];
         final_predictors.extend_from_slice(&self.predictors);
@@ -106,10 +106,9 @@ impl QuantileDecompositionBuilder {
         }
 
         let x_df_selected = x_df.select(final_predictors)?;
-        let x_matrix = x_df_selected.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
-        let x_vec: Vec<f64> = x_matrix.iter().copied().collect();
+        let x = x_df_selected.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
         let final_names = x_df_selected.get_column_names().iter().map(|s| s.to_string()).collect();
-        Ok((DMatrix::from_row_slice(x_df_selected.height(), x_df_selected.width(), &x_vec), y, final_names))
+        Ok((x, y, final_names))
     }
 
     fn create_dummies_manual(&self, series: &Series) -> Result<DataFrame, OaxacaError> {
@@ -153,19 +152,13 @@ impl QuantileDecompositionBuilder {
         let uniform_dist = Uniform::from(0.01..0.99);
         let random_quantiles: Vec<f64> = (0..self.simulations).map(|_| uniform_dist.sample(&mut rng)).collect();
 
-        // Convert nalgebra to ndarray for the QR solver
-        let x_a_nd = Array2::from_shape_vec((x_a.nrows(), x_a.ncols()), x_a.data.as_vec().clone()).unwrap();
-        let y_a_nd = Array1::from_vec(y_a.as_slice().to_vec());
-        let x_b_nd = Array2::from_shape_vec((x_b.nrows(), x_b.ncols()), x_b.data.as_vec().clone()).unwrap();
-        let y_b_nd = Array1::from_vec(y_b.as_slice().to_vec());
-
-        let betas_a: Vec<DVector<f64>> = random_quantiles.par_iter()
-            .filter_map(|&tau| solve_qr(&x_a_nd, &y_a_nd, tau).ok())
-            .map(DVector::from_vec)
+        let betas_a: Vec<Array1<f64>> = random_quantiles.par_iter()
+            .filter_map(|&tau| solve_qr(&x_a, &y_a, tau).ok())
+            .map(Array1::from)
             .collect();
-        let betas_b: Vec<DVector<f64>> = random_quantiles.par_iter()
-            .filter_map(|&tau| solve_qr(&x_b_nd, &y_b_nd, tau).ok())
-            .map(DVector::from_vec)
+        let betas_b: Vec<Array1<f64>> = random_quantiles.par_iter()
+            .filter_map(|&tau| solve_qr(&x_b, &y_b, tau).ok())
+            .map(Array1::from)
             .collect();
 
         if betas_a.len() < self.simulations / 2 || betas_b.len() < self.simulations / 2 {
@@ -190,9 +183,9 @@ impl QuantileDecompositionBuilder {
             let beta_a_i = &betas_a[i];
             let beta_b_i = &betas_b[i];
 
-            y_aa_vec.push((&x_a_i * beta_a_i)[(0, 0)]);
-            y_bb_vec.push((&x_b_i * beta_b_i)[(0, 0)]);
-            y_ab_vec.push((&x_a_i * beta_b_i)[(0, 0)]);
+            y_aa_vec.push(x_a_i.dot(beta_a_i));
+            y_bb_vec.push(x_b_i.dot(beta_b_i));
+            y_ab_vec.push(x_a_i.dot(beta_b_i));
         }
 
         let mut effects_by_quantile = HashMap::new();
