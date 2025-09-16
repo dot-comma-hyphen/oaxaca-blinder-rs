@@ -34,8 +34,8 @@ fn run_and_check(builder: OaxacaBuilder, expected_gap: f64) {
 #[test]
 fn test_full_run_group_b_ref() {
     let df = create_sample_dataframe();
-    let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+    let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
+    builder.predictors(&["education"])
         .bootstrap_reps(5); // Default is GroupB
     run_and_check(builder, 10.0);
 }
@@ -43,8 +43,8 @@ fn test_full_run_group_b_ref() {
 #[test]
 fn test_full_run_group_a_ref() {
     let df = create_sample_dataframe();
-    let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+    let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
+    builder.predictors(&["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::GroupA);
     run_and_check(builder, 10.0);
@@ -53,8 +53,8 @@ fn test_full_run_group_a_ref() {
 #[test]
 fn test_full_run_pooled_ref() {
     let df = create_sample_dataframe();
-    let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+    let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
+    builder.predictors(&["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Pooled);
     run_and_check(builder, 10.0);
@@ -63,8 +63,8 @@ fn test_full_run_pooled_ref() {
 #[test]
 fn test_full_run_weighted_ref() {
     let df = create_sample_dataframe();
-    let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+    let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
+    builder.predictors(&["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Weighted);
     run_and_check(builder, 10.0);
@@ -79,8 +79,8 @@ fn test_with_categorical_variable() {
         "union" => &["none", "union", "union_plus", "none", "union", "union_plus", "none", "union", "union_plus", "none"]
     ).unwrap();
 
-    let builder = OaxacaBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+    let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
+    builder.predictors(&["education"])
         .categorical_predictors(&["union"])
         .normalize(&["union"])
         .bootstrap_reps(5);
@@ -98,8 +98,8 @@ fn test_quantile_decomposition() {
     .unwrap();
 
     let quantiles_to_test = &[0.25, 0.5, 0.75];
-    let results = QuantileDecompositionBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+    let mut builder = QuantileDecompositionBuilder::new(df, "wage", "gender", "F");
+    let results = builder.predictors(&["education"])
         .quantiles(quantiles_to_test)
         .simulations(50) // Low number for fast testing
         .bootstrap_reps(20) // Low number for fast testing

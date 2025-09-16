@@ -155,7 +155,7 @@ impl OaxacaBuilder {
     /// Sets the reference coefficients for the decomposition.
     ///
     /// The default is `ReferenceCoefficients::GroupB`.
-    pub fn reference_coefficients(mut self, reference: ReferenceCoefficients) -> Self {
+    pub fn reference_coefficients(&mut self, reference: ReferenceCoefficients) -> &mut Self {
         self.reference_coeffs = reference;
         self
     }
@@ -165,7 +165,7 @@ impl OaxacaBuilder {
     /// # Arguments
     ///
     /// * `predictors` - A slice of strings representing the column names of the predictor variables.
-    pub fn predictors(mut self, predictors: &[&str]) -> Self {
+    pub fn predictors(&mut self, predictors: &[&str]) -> &mut Self {
         self.predictors = predictors.iter().map(|s| s.to_string()).collect();
         self
     }
@@ -175,7 +175,7 @@ impl OaxacaBuilder {
     /// # Arguments
     ///
     /// * `predictors` - A slice of strings representing the column names of the categorical predictor variables.
-    pub fn categorical_predictors(mut self, predictors: &[&str]) -> Self {
+    pub fn categorical_predictors(&mut self, predictors: &[&str]) -> &mut Self {
         self.categorical_predictors = predictors.iter().map(|s| s.to_string()).collect();
         self
     }
@@ -185,7 +185,7 @@ impl OaxacaBuilder {
     /// # Arguments
     ///
     /// * `reps` - The number of bootstrap samples to generate. Defaults to 100.
-    pub fn bootstrap_reps(mut self, reps: usize) -> Self {
+    pub fn bootstrap_reps(&mut self, reps: usize) -> &mut Self {
         self.bootstrap_reps = reps;
         self
     }
@@ -195,7 +195,7 @@ impl OaxacaBuilder {
     /// # Arguments
     ///
     /// * `vars` - A slice of strings representing the column names of the categorical variables to normalize.
-    pub fn normalize(mut self, vars: &[&str]) -> Self {
+    pub fn normalize(&mut self, vars: &[&str]) -> &mut Self {
         self.normalization_vars = vars.iter().map(|s| s.to_string()).collect();
         self
     }
