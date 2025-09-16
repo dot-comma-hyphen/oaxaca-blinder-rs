@@ -48,6 +48,8 @@ use crate::decomposition::{
 use crate::math::normalization::normalize_categorical_coefficients;
 use crate::inference::bootstrap_stats;
 pub use crate::decomposition::ReferenceCoefficients;
+pub mod quantile_decomposition;
+pub use crate::quantile_decomposition::QuantileDecompositionBuilder;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]

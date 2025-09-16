@@ -92,11 +92,6 @@ pub fn solve_qr(
 
     let a = CscMatrix::new(3 * n_obs, n_vars, a_col_ptr, a_row_ind, a_nz_val);
 
-    println!("P: {:?}", p);
-    println!("q: {:?}", q);
-    println!("A: {:?}", a);
-    println!("b: {:?}", b);
-
     // Cones: n_obs equality constraints, 2 * n_obs non-negative constraints
     let cones = vec![ZeroConeT(n_obs), NonnegativeConeT(2 * n_obs)];
 
@@ -127,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_solve_qr_median() {
-        // Simple dataset with an outlier
+        // Simple dataset
         let y = array![1.0, 2.0, 3.0, 4.0, 5.0];
         let x = array![
             [1.0, 1.0],
@@ -138,17 +133,12 @@ mod tests {
         ];
         let tau = 0.5;
 
-        // Expected results from R's quantreg::rq(y ~ x, tau = 0.5)
-        // coef(fit) -> (Intercept): 0.0, x: 1.0
+        // For perfectly linear data, the QR line should be the same for all quantiles.
         let expected_betas = vec![0.0, 1.0];
 
         let result = solve_qr(&x, &y, tau).unwrap();
 
-        println!("Calculated coefficients (tau=0.5): {:?}", result);
-        println!("Expected coefficients (tau=0.5): {:?}", expected_betas);
-
         assert_eq!(result.len(), 2);
-        // Check if the results are close to the expected values
         let tolerance = 1e-4; // Looser tolerance for different solver
         assert!((result[0] - expected_betas[0]).abs() < tolerance);
         assert!((result[1] - expected_betas[1]).abs() < tolerance);
@@ -156,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_solve_qr_quartile() {
-        // Simple dataset with an outlier
+        // Simple dataset
         let y = array![1.0, 2.0, 3.0, 4.0, 5.0];
         let x = array![
             [1.0, 1.0],
@@ -167,17 +157,12 @@ mod tests {
         ];
         let tau = 0.25;
 
-        // Expected results from R's quantreg::rq(y ~ x, tau = 0.25)
-        // coef(fit) -> (Intercept): 0.5, x: 0.5
-        let expected_betas = vec![0.5, 0.5];
+        // For perfectly linear data, the QR line should be the same for all quantiles.
+        let expected_betas = vec![0.0, 1.0];
 
         let result = solve_qr(&x, &y, tau).unwrap();
 
-        println!("Calculated coefficients (tau=0.25): {:?}", result);
-        println!("Expected coefficients (tau=0.25): {:?}", expected_betas);
-
         assert_eq!(result.len(), 2);
-        // Check if the results are close to the expected values
         let tolerance = 1e-4; // Looser tolerance for different solver
         assert!((result[0] - expected_betas[0]).abs() < tolerance);
         assert!((result[1] - expected_betas[1]).abs() < tolerance);
