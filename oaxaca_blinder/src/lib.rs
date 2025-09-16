@@ -54,6 +54,7 @@
 //! ```
 
 use std::fmt;
+use std::collections::HashMap;
 use getset::Getters;
 use polars::prelude::*;
 use nalgebra::{DMatrix, DVector};
@@ -436,14 +437,18 @@ impl OaxacaBuilder {
             process_component("interaction", point_estimates.three_fold.interaction, bootstrap_results.iter().map(|r| r.three_fold.interaction).collect()),
         ];
 
-        let detailed_explained: Vec<ComponentResult> = point_estimates.detailed_explained.iter().enumerate().map(|(i, comp)| {
-            let estimates = bootstrap_results.iter().map(|r| r.detailed_explained[i].contribution).collect();
-            process_component(&comp.variable_name, comp.contribution, estimates)
-        }).collect();
-        let detailed_unexplained: Vec<ComponentResult> = point_estimates.detailed_unexplained.iter().enumerate().map(|(i, comp)| {
-            let estimates = bootstrap_results.iter().map(|r| r.detailed_unexplained[i].contribution).collect();
-            process_component(&comp.variable_name, comp.contribution, estimates)
-        }).collect();
+        let detailed_explained = self.process_detailed_components(
+            &point_estimates.detailed_explained,
+            &bootstrap_results,
+            |r| &r.detailed_explained,
+            &process_component,
+        );
+        let detailed_unexplained = self.process_detailed_components(
+            &point_estimates.detailed_unexplained,
+            &bootstrap_results,
+            |r| &r.detailed_unexplained,
+            &process_component,
+        );
 
         let group_b_name = self.reference_group.as_str();
         let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
@@ -461,6 +466,29 @@ impl OaxacaBuilder {
             n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
             n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
         })
+    }
+
+    fn process_detailed_components<'a, F>(
+        &self,
+        point_components: &[DetailedComponent],
+        bootstrap_results: &'a [SinglePassResult],
+        extract_fn: F,
+        process_component: &dyn Fn(&str, f64, Vec<f64>) -> ComponentResult,
+    ) -> Vec<ComponentResult>
+    where
+        F: Fn(&'a SinglePassResult) -> &'a Vec<DetailedComponent> + Sync,
+    {
+        let mut bootstrap_map: HashMap<String, Vec<f64>> = HashMap::new();
+        for r in bootstrap_results.iter() {
+            for comp in extract_fn(r) {
+                bootstrap_map.entry(comp.variable_name.clone()).or_default().push(comp.contribution);
+            }
+        }
+
+        point_components.iter().map(|comp| {
+            let estimates = bootstrap_map.get(&comp.variable_name).cloned().unwrap_or_else(Vec::new);
+            process_component(&comp.variable_name, comp.contribution, estimates)
+        }).collect()
     }
 }
 
