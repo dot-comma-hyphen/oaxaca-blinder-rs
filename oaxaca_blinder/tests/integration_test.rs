@@ -1,5 +1,5 @@
 use polars::prelude::*;
-use oaxaca_blinder::{OaxacaBuilder, ReferenceCoefficients};
+use oaxaca_blinder::{OaxacaBuilder, ReferenceCoefficients, QuantileDecompositionBuilder};
 
 fn create_sample_dataframe() -> DataFrame {
     df!(
@@ -86,4 +86,37 @@ fn test_with_categorical_variable() {
         .bootstrap_reps(5);
 
     run_and_check(builder, 10.0);
+}
+
+#[test]
+fn test_quantile_decomposition() {
+    let df = df!(
+        "wage" => &[10.0, 12.0, 11.0, 13.0, 15.0, 20.0, 22.0, 21.0, 23.0, 25.0, 9.0, 18.0],
+        "education" => &[12.0, 16.0, 14.0, 16.0, 18.0, 12.0, 16.0, 14.0, 16.0, 18.0, 10.0, 20.0],
+        "gender" => &["F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "M"]
+    )
+    .unwrap();
+
+    let quantiles_to_test = &[0.25, 0.5, 0.75];
+    let results = QuantileDecompositionBuilder::new(df, "wage", "gender", "F")
+        .predictors(&["education"])
+        .quantiles(quantiles_to_test)
+        .simulations(50) // Low number for fast testing
+        .bootstrap_reps(20) // Low number for fast testing
+        .run()
+        .unwrap();
+
+    assert!(results.results_by_quantile().contains_key("q25"));
+    assert!(results.results_by_quantile().contains_key("q50"));
+    assert!(results.results_by_quantile().contains_key("q75"));
+
+    for key in &["q25", "q50", "q75"] {
+        let detail = results.results_by_quantile().get(*key).unwrap();
+        let gap = detail.total_gap().estimate();
+        let chars = detail.characteristics_effect().estimate();
+        let coeffs = detail.coefficients_effect().estimate();
+        assert!((chars + coeffs - gap).abs() < 1e-9);
+    }
+
+    results.summary();
 }

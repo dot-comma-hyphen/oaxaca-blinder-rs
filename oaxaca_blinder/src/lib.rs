@@ -29,6 +29,29 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ### Quantile Regression Decomposition
+//!
+//! ```ignore
+//! use polars::prelude::*;
+//! use oaxaca_blinder::QuantileDecompositionBuilder;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let df = df!(
+//!         "wage" => &[10.0, 12.0, 11.0, 13.0, 15.0, 20.0, 22.0, 21.0, 23.0, 25.0, 9.0, 18.0],
+//!         "education" => &[12.0, 16.0, 14.0, 16.0, 18.0, 12.0, 16.0, 14.0, 16.0, 18.0, 10.0, 20.0],
+//!         "gender" => &["F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "M"]
+//!     )?;
+//!
+//!     let results = QuantileDecompositionBuilder::new(df, "wage", "gender", "F")
+//!         .predictors(&["education"])
+//!         .quantiles(&[0.25, 0.5, 0.75])
+//!         .run()?;
+//!
+//!     results.summary();
+//!     Ok(())
+//! }
+//! ```
 
 use std::fmt;
 use getset::Getters;
@@ -48,6 +71,8 @@ use crate::decomposition::{
 use crate::math::normalization::normalize_categorical_coefficients;
 use crate::inference::bootstrap_stats;
 pub use crate::decomposition::ReferenceCoefficients;
+pub mod quantile_decomposition;
+pub use crate::quantile_decomposition::QuantileDecompositionBuilder;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]

@@ -20,7 +20,92 @@ The library is built on top of the `polars` DataFrame library for data manipulat
 -   **Easy-to-Use Builder Pattern:** Configure and run your decomposition with a fluent, chainable API.
 -   **Formatted Summary Table:** A built-in `summary()` method prints a clear, publication-style table of the results.
 
-## Decomposition Methodology
+## Quantile Regression Decomposition (Machado-Mata Method)
+
+In addition to mean decomposition, this library now supports **quantile regression decomposition** using the simulation-based method developed by Machado and Mata (2005). This powerful technique allows you to analyze how the gap between two groups changes across the entire distribution of the outcome variable.
+
+Instead of just one "gap", you can now answer questions like:
+-   Is the wage gap larger for low-earners (at the 10th percentile) or high-earners (at the 90th percentile)?
+-   Do characteristics like education have different effects at the top of the distribution versus the bottom?
+
+This is essential for studying phenomena like "glass ceilings" (where the gap widens at the top) or "sticky floors" (where the gap is largest at the bottom).
+
+### How to Use Quantile Decomposition
+
+The API is very similar to the mean decomposition, using the `QuantileDecompositionBuilder`.
+
+```rust
+use polars::prelude::*;
+use oaxaca_blinder::QuantileDecompositionBuilder;
+use std::error::Error;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let df = df!(
+        "wage" => &[10.0, 12.0, 11.0, 13.0, 15.0, 20.0, 22.0, 21.0, 23.0, 25.0, 9.0, 18.0],
+        "education" => &[12.0, 16.0, 14.0, 16.0, 18.0, 12.0, 16.0, 14.0, 16.0, 18.0, 10.0, 20.0],
+        "gender" => &["F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "M"]
+    )?;
+
+    // Configure and run the quantile decomposition
+    let results = QuantileDecompositionBuilder::new(df, "wage", "gender", "F")
+        .predictors(&["education"])
+        .quantiles(&[0.1, 0.5, 0.9]) // Specify which quantiles to analyze
+        .simulations(500)            // Number of simulations for the MM algorithm
+        .bootstrap_reps(200)         // Number of bootstrap replications for SEs
+        .run()?;
+
+    // Print the summary table
+    results.summary();
+
+    Ok(())
+}
+```
+
+### Summary Output for Quantile Decomposition
+
+The `summary()` method will print a separate decomposition table for each requested quantile.
+
+```text
+Machado-Mata Quantile Decomposition Results
+============================================
+Group A (Advantaged): 6 observations
+Group B (Reference):  6 observations
+
+--- Decomposition for Quantile: q10 ---
++--------------------+----------+-----------+---------+-------------------+
+| Component          | Estimate | Std. Err. | p-value | 95% CI            |
++========================================================================+
+| Total Gap          | 9.0000   | ...       | ...     | ...               |
+|--------------------+----------+-----------+---------+-------------------|
+| Characteristics    | 4.2000   | ...       | ...     | ...               |
+|--------------------+----------+-----------+---------+-------------------|
+| Coefficients       | 4.8000   | ...       | ...     | ...               |
++--------------------+----------+-----------+---------+-------------------+
+
+--- Decomposition for Quantile: q50 ---
++--------------------+----------+-----------+---------+-------------------+
+| Component          | Estimate | Std. Err. | p-value | 95% CI            |
++========================================================================+
+| Total Gap          | 10.5000  | ...       | ...     | ...               |
+|--------------------+----------+-----------+---------+-------------------|
+| Characteristics    | 5.1000   | ...       | ...     | ...               |
+|--------------------+----------+-----------+---------+-------------------|
+| Coefficients       | 5.4000   | ...       | ...     | ...               |
++--------------------+----------+-----------+---------+-------------------+
+
+--- Decomposition for Quantile: q90 ---
++--------------------+----------+-----------+---------+-------------------+
+| Component          | Estimate | Std. Err. | p-value | 95% CI            |
++========================================================================+
+| Total Gap          | 12.0000  | ...       | ...     | ...               |
+|--------------------+----------+-----------+---------+-------------------|
+| Characteristics    | 5.8000   | ...       | ...     | ...               |
+|--------------------+----------+-----------+---------+-------------------|
+| Coefficients       | 6.2000   | ...       | ...     | ...               |
++--------------------+----------+-----------+---------+-------------------+
+```
+
+## OLS Mean Decomposition Methodology
 
 The Oaxaca-Blinder method is an "accounting" technique that decomposes the gap in a mean outcome variable between two groups (A and B) into components attributable to group differences in measurable characteristics and differences in the returns to those characteristics.
 
