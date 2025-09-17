@@ -2,3 +2,4 @@
 /oaxaca_blinder/target/
 /target/
 Cargo.lock
+/build_target/
