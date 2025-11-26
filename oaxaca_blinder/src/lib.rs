@@ -81,7 +81,12 @@ pub use crate::jmp::decompose_changes;
 pub mod dfl;
 pub use crate::dfl::run_dfl;
 pub mod heckman;
+pub mod formula;
 pub use crate::heckman::heckman_two_step;
+use crate::formula::Formula;
+
+#[cfg(feature = "python")]
+pub mod python;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -159,7 +164,7 @@ impl OaxacaBuilder {
     /// * `group` - The name of the column that divides the data into two groups (e.g., "gender").
     /// * `reference_group` - The value within the `group` column that identifies the reference group (the lower-outcome group, or Group B).
     pub fn new(dataframe: DataFrame, outcome: &str, group: &str, reference_group: &str) -> Self {
-        OaxacaBuilder {
+        Self {
             dataframe,
             outcome: outcome.to_string(),
             predictors: Vec::new(),
@@ -167,12 +172,38 @@ impl OaxacaBuilder {
             group: group.to_string(),
             reference_group: reference_group.to_string(),
             bootstrap_reps: 100,
-            reference_coeffs: ReferenceCoefficients::default(),
+            reference_coeffs: ReferenceCoefficients::GroupA,
             normalization_vars: Vec::new(),
             weights_col: None,
             selection_outcome: None,
             selection_predictors: Vec::new(),
         }
+    }
+
+    /// Creates a new `OaxacaBuilder` using an R-style formula.
+    ///
+    /// # Arguments
+    ///
+    /// * `dataframe` - The Polars DataFrame containing the data.
+    /// * `formula` - A string representing the model formula (e.g., "wage ~ education + experience + C(sector)").
+    /// * `group` - The name of the column defining the two groups.
+    /// * `reference_group` - The value in the `group` column representing the reference group (Group B).
+    pub fn from_formula(dataframe: DataFrame, formula: &str, group: &str, reference_group: &str) -> Result<Self, OaxacaError> {
+        let parsed_formula = Formula::parse(formula)?;
+        Ok(Self {
+            dataframe,
+            outcome: parsed_formula.outcome,
+            predictors: parsed_formula.predictors,
+            categorical_predictors: parsed_formula.categorical_predictors,
+            group: group.to_string(),
+            reference_group: reference_group.to_string(),
+            bootstrap_reps: 100,
+            reference_coeffs: ReferenceCoefficients::GroupA,
+            normalization_vars: Vec::new(),
+            weights_col: None,
+            selection_outcome: None,
+            selection_predictors: Vec::new(),
+        })
     }
 
     /// Sets the reference coefficients for the decomposition.

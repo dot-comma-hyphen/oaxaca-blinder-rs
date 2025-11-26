@@ -151,6 +151,32 @@ Designed for performance, utilizing Rust's speed and parallelization (Rayon) for
 
 *Rust's parallelized bootstrapping makes standard error estimation orders of magnitude faster.*
 
+### Performance Comparison (Real-World Data)
+
+**Rust Implementation**: 4.32 seconds
+**R Implementation**: ~1.99 minutes (119.4 seconds)
+**Speedup**: ~27.6x faster
+
+### Results Validation
+
+The results are nearly identical, confirming the correctness of the Rust implementation:
+
+| Metric | Rust Result | R Result | Difference |
+| :--- | :--- | :--- | :--- |
+| **Total Gap** | 3.2101 | 3.210084 | ~0.000016 |
+| **Explained** | -0.8097 | -0.8097 | Exact match (4 decimals) |
+| **Unexplained** | 4.0198 | 4.0198 | Exact match (4 decimals) |
+
+**Detailed Components (Selected):**
+
+| Variable | Component | Rust Contribution | R Contribution |
+| :--- | :--- | :--- | :--- |
+| **Education** | Explained | -0.7852 | -0.7852 |
+| **Experience** | Unexplained | 2.0670 | 2.0670 |
+| **Intercept** | Unexplained | 2.1405 | 2.1405 |
+
+*The minor differences in standard errors (e.g., Rust SE for unexplained is 0.0314 vs R SE 0.0311) are expected due to the random nature of bootstrapping.*
+
 ---
 
 ## 📚 Theory & Methodology
