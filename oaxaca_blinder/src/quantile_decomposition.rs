@@ -6,7 +6,6 @@
 use polars::prelude::*;
 use getset::Getters;
 use std::collections::HashMap;
-use nalgebra::{DMatrix, DVector};
 use ndarray::{Array1, Array2};
 use rand::Rng;
 use rand::distributions::{Distribution, Uniform};
@@ -220,14 +219,29 @@ impl QuantileDecompositionBuilder {
             }
         }
 
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        let group_b_name = self.reference_group.as_str();
+        let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
+        let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
+
         let point_estimates = self.run_single_pass(&df, &all_dummy_names)?;
+
+        let group_a_name_owned = group_a_name.to_string();
+        let group_b_name_owned = group_b_name.to_string();
 
         let bootstrap_results: Vec<SinglePassResult> = (0..self.bootstrap_reps)
             .into_par_iter()
             .filter_map(|_| {
-                df.sample_n_literal(df.height(), true, false, None)
-                    .ok()
-                    .and_then(|sample_df| self.run_single_pass(&sample_df, &all_dummy_names).ok())
+                // Stratified sampling: Sample from Group A and Group B separately
+                let df_a = df.filter(&df.column(&self.group).ok()?.equal(group_a_name_owned.as_str()).ok()?).ok()?;
+                let df_b = df.filter(&df.column(&self.group).ok()?.equal(group_b_name_owned.as_str()).ok()?).ok()?;
+
+                let sample_a = df_a.sample_n_literal(df_a.height(), true, false, None).ok()?;
+                let sample_b = df_b.sample_n_literal(df_b.height(), true, false, None).ok()?;
+                
+                let sample_df = sample_a.vstack(&sample_b).ok()?;
+
+                self.run_single_pass(&sample_df, &all_dummy_names).ok()
             })
             .collect();
 
@@ -250,11 +264,6 @@ impl QuantileDecompositionBuilder {
             };
             final_results.insert(key.clone(), detail);
         }
-
-        let group_b_name = self.reference_group.as_str();
-        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
-        let group_a_name = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
-        let group_a_name = if group_a_name == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name };
 
         Ok(QuantileDecompositionResults {
             results_by_quantile: final_results,

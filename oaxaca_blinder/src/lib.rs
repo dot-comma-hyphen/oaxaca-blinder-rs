@@ -56,6 +56,7 @@
 use std::fmt;
 use std::collections::HashMap;
 use getset::Getters;
+use serde::Serialize;
 use polars::prelude::*;
 use nalgebra::{DMatrix, DVector};
 use comfy_table::{Table, Cell};
@@ -86,6 +87,8 @@ pub enum OaxacaError {
     InvalidGroupVariable(String),
     /// Occurs when there is an issue with linear algebra operations, such as a singular matrix.
     NalgebraError(String),
+    /// Occurs when there is an issue with a diagnostic calculation.
+    DiagnosticError(String),
 }
 
 impl From<PolarsError> for OaxacaError {
@@ -99,6 +102,7 @@ impl fmt::Display for OaxacaError {
             OaxacaError::ColumnNotFound(s) => write!(f, "Column not found: {}", s),
             OaxacaError::InvalidGroupVariable(s) => write!(f, "Invalid group variable: {}", s),
             OaxacaError::NalgebraError(s) => write!(f, "Nalgebra error: {}", s),
+            OaxacaError::DiagnosticError(s) => write!(f, "Diagnostic error: {}", s),
         }
     }
 }
@@ -342,8 +346,8 @@ impl OaxacaBuilder {
         };
 
         let three_fold = three_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b);
-        let two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
-        let (detailed_explained, mut detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
+        let mut two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
+        let (mut detailed_explained, mut detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
 
         if !self.normalization_vars.is_empty() {
             for var in &self.normalization_vars {
@@ -367,13 +371,23 @@ impl OaxacaBuilder {
                 let beta_b_base = base_coeffs_b.get(var).cloned().unwrap_or(0.0);
                 let beta_star_base = base_coeffs_star.get(var).cloned().unwrap_or(0.0);
 
-                let contribution =
+                let contribution_unexplained =
                     xa_mean_base * (beta_a_base - beta_star_base) + xb_mean_base * (beta_star_base - beta_b_base);
+
+                let contribution_explained = (xa_mean_base - xb_mean_base) * beta_star_base;
 
                 detailed_unexplained.push(DetailedComponent {
                     variable_name: base_dummy_name.clone(),
-                    contribution,
+                    contribution: contribution_unexplained,
                 });
+
+                detailed_explained.push(DetailedComponent {
+                    variable_name: base_dummy_name.clone(),
+                    contribution: contribution_explained,
+                });
+
+                two_fold.explained += contribution_explained;
+                two_fold.unexplained += contribution_unexplained;
             }
         }
 
@@ -399,18 +413,34 @@ impl OaxacaBuilder {
                 }
                 df = df.hstack(dummies.get_columns())?;
             }
-        }
+            }
+
+
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        let group_b_name = self.reference_group.as_str();
+        let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
+        let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
 
         use rayon::prelude::*;
 
         let point_estimates = self.run_single_pass(&df, &all_dummy_names, &category_counts, &base_categories)?;
 
+        let group_a_name_owned = group_a_name.to_string();
+        let group_b_name_owned = group_b_name.to_string();
+
         let bootstrap_results: Vec<SinglePassResult> = (0..self.bootstrap_reps)
             .into_par_iter()
             .filter_map(|_| {
-                df.sample_n_literal(df.height(), true, false, None)
-                    .ok()
-                    .and_then(|sample_df| self.run_single_pass(&sample_df, &all_dummy_names, &category_counts, &base_categories).ok())
+                // Stratified sampling: Sample from Group A and Group B separately
+                let df_a = df.filter(&df.column(&self.group).ok()?.equal(group_a_name_owned.as_str()).ok()?).ok()?;
+                let df_b = df.filter(&df.column(&self.group).ok()?.equal(group_b_name_owned.as_str()).ok()?).ok()?;
+
+                let sample_a = df_a.sample_n_literal(df_a.height(), true, false, None).ok()?;
+                let sample_b = df_b.sample_n_literal(df_b.height(), true, false, None).ok()?;
+                
+                let sample_df = sample_a.vstack(&sample_b).ok()?;
+
+                self.run_single_pass(&sample_df, &all_dummy_names, &category_counts, &base_categories).ok()
             })
             .collect();
 
@@ -450,11 +480,6 @@ impl OaxacaBuilder {
             &process_component,
         );
 
-        let group_b_name = self.reference_group.as_str();
-        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
-        let group_a_name = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
-        let group_a_name = if group_a_name == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name };
-
         Ok(OaxacaResults {
             total_gap: point_estimates.total_gap,
             two_fold: TwoFoldResults {
@@ -493,7 +518,7 @@ impl OaxacaBuilder {
 }
 
 /// Holds results for the two-fold decomposition, including detailed components.
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, Serialize)]
 #[getset(get = "pub")]
 pub struct TwoFoldResults {
     /// Aggregate results for the explained and unexplained components.
@@ -505,7 +530,7 @@ pub struct TwoFoldResults {
 }
 
 /// Holds all the results from the Oaxaca-Blinder decomposition.
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, Serialize)]
 #[getset(get = "pub")]
 pub struct OaxacaResults {
     /// The total difference in the mean outcome between the two groups.
@@ -575,11 +600,67 @@ impl OaxacaResults {
         println!("\nDetailed Decomposition (Unexplained)");
         println!("{}", unexplained_table);
     }
+
+    /// Exports the results to a LaTeX table fragment.
+    pub fn to_latex(&self) -> String {
+        let mut latex = String::new();
+        latex.push_str("\\begin{table}[ht]\n");
+        latex.push_str("\\centering\n");
+        latex.push_str("\\begin{tabular}{lcccc}\n");
+        latex.push_str("\\hline\n");
+        latex.push_str("Component & Estimate & Std. Err. & p-value & 95\\% CI \\\\\n");
+        latex.push_str("\\hline\n");
+        latex.push_str("\\multicolumn{5}{l}{\\textit{Two-Fold Decomposition}} \\\\\n");
+
+        for component in self.two_fold.aggregate() {
+            latex.push_str(&format!(
+                "{} & {:.4} & {:.4} & {:.4} & [{:.3}, {:.3}] \\\\\n",
+                component.name(),
+                component.estimate(),
+                component.std_err(),
+                component.p_value(),
+                component.ci_lower(),
+                component.ci_upper()
+            ));
+        }
+        latex.push_str("\\hline\n");
+        latex.push_str("\\end{tabular}\n");
+        latex.push_str("\\caption{Oaxaca-Blinder Decomposition Results}\n");
+        latex.push_str("\\label{tab:oaxaca_results}\n");
+        latex.push_str("\\end{table}\n");
+        latex
+    }
+
+    /// Exports the results to a Markdown table.
+    pub fn to_markdown(&self) -> String {
+        let mut md = String::new();
+        md.push_str("### Oaxaca-Blinder Decomposition Results\n\n");
+        md.push_str("| Component | Estimate | Std. Err. | p-value | 95% CI |\n");
+        md.push_str("|---|---|---|---|---|\n");
+
+        for component in self.two_fold.aggregate() {
+            md.push_str(&format!(
+                "| {} | {:.4} | {:.4} | {:.4} | [{:.3}, {:.3}] |\n",
+                component.name(),
+                component.estimate(),
+                component.std_err(),
+                component.p_value(),
+                component.ci_lower(),
+                component.ci_upper()
+            ));
+        }
+        md
+    }
+
+    /// Exports the results to a JSON string.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
 }
 
 
 /// Represents a component of the decomposition (e.g., two-fold or three-fold).
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, Serialize)]
 #[getset(get = "pub")]
 pub struct DecompositionDetail {
     /// Aggregate results for this decomposition component (e.g., "Explained", "Unexplained").
@@ -589,7 +670,7 @@ pub struct DecompositionDetail {
 }
 
 /// Represents the calculated result for a single component or variable.
-#[derive(Debug, Getters, Clone)]
+#[derive(Debug, Getters, Clone, Serialize)]
 #[getset(get = "pub")]
 pub struct ComponentResult {
     name: String,

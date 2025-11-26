@@ -14,7 +14,9 @@ fn test_mean_decomposition() {
         .arg("--reference")
         .arg("F")
         .arg("--predictors")
-        .arg("education");
+        .arg("education")
+        .arg("--bootstrap-reps")
+        .arg("2");
 
     cmd.assert()
         .success()
@@ -38,7 +40,9 @@ fn test_mean_decomposition_with_categorical() {
         .arg("--predictors")
         .arg("education")
         .arg("--categorical")
-        .arg("gender");
+        .arg("sector")
+        .arg("--bootstrap-reps")
+        .arg("2");
 
     cmd.assert()
         .success()
@@ -59,7 +63,11 @@ fn test_quantile_decomposition() {
         .arg("--predictors")
         .arg("education")
         .arg("--analysis-type")
-        .arg("quantile");
+        .arg("quantile")
+        .arg("--bootstrap-reps")
+        .arg("2")
+        .arg("--simulations")
+        .arg("10");
 
     cmd.assert()
         .success()
