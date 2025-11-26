@@ -33,9 +33,36 @@ cargo install oaxaca_blinder --features cli
 
 ### Usage
 
+**Basic Decomposition:**
 ```bash
 oaxaca-cli --data wage.csv --outcome wage --group gender --reference F \
     --predictors education experience --categorical sector
+```
+
+**Using R-style Formula:**
+```bash
+oaxaca-cli --data wage.csv --group gender --reference F \
+    --formula "wage ~ education + experience + C(sector)"
+```
+
+**With Sample Weights (WLS):**
+```bash
+oaxaca-cli --data wage.csv --outcome wage --group gender --reference F \
+    --predictors education experience \
+    --weights sampling_weight
+```
+
+**With Heckman Correction (Selection Bias):**
+```bash
+oaxaca-cli --data wage.csv --outcome wage --group gender --reference F \
+    --predictors education experience \
+    --selection-outcome employed \
+    --selection-predictors education experience age marital_status
+```
+
+**Export Results:**
+```bash
+oaxaca-cli --data wage.csv ... --output-json results.json --output-markdown report.md
 ```
 
 Supports both `--analysis-type mean` (default) and `--analysis-type quantile`.

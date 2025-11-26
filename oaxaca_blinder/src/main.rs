@@ -50,21 +50,38 @@ struct Args {
     /// The number of simulations for the Machado-Mata algorithm (for quantile analysis)
     #[arg(long, default_value_t = 1000)]
     simulations: usize,
+
+    /// R-style formula for the model (e.g., "wage ~ education + experience + C(sector)")
+    #[arg(long)]
+    formula: Option<String>,
+
+    /// Column name for sample weights (for WLS)
+    #[arg(long)]
+    weights: Option<String>,
+
+    /// Outcome variable for the selection equation (Heckman correction)
+    #[arg(long)]
+    selection_outcome: Option<String>,
+
+    /// Predictors for the selection equation (Heckman correction)
+    #[arg(long, value_delimiter = ',')]
+    selection_predictors: Option<Vec<String>>,
+
+    /// Path to export results as JSON
+    #[arg(long)]
+    output_json: Option<PathBuf>,
+
+    /// Path to export results as Markdown
+    #[arg(long)]
+    output_markdown: Option<PathBuf>,
 }
 
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let df = CsvReader::from_path(args.data)?
+    let df = CsvReader::from_path(&args.data)?
         .has_header(true)
         .finish()?;
 
     if args.analysis_type == "mean" {
-        let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
-        let categorical_predictors: Vec<&str> = args
-            .categorical
-            .as_ref()
-            .map(|v| v.iter().map(AsRef::as_ref).collect())
-            .unwrap_or_else(Vec::new);
-
         let reference_coeffs = match args.ref_coeffs.as_str() {
             "group_a" => ReferenceCoefficients::GroupA,
             "group_b" => ReferenceCoefficients::GroupB,
@@ -73,16 +90,51 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             _ => return Err("Invalid reference coefficient type".into()),
         };
 
-        let mut builder = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference);
+        let mut builder = if let Some(formula) = &args.formula {
+            OaxacaBuilder::from_formula(df, formula, &args.group, &args.reference)?
+        } else {
+            let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
+            let categorical_predictors: Vec<&str> = args
+                .categorical
+                .as_ref()
+                .map(|v| v.iter().map(AsRef::as_ref).collect())
+                .unwrap_or_else(Vec::new);
+            
+            let mut b = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference);
+            b.predictors(&predictors)
+             .categorical_predictors(&categorical_predictors);
+            b
+        };
 
-        builder
-            .predictors(&predictors)
-            .categorical_predictors(&categorical_predictors)
-            .bootstrap_reps(args.bootstrap_reps)
-            .reference_coefficients(reference_coeffs);
+        builder.bootstrap_reps(args.bootstrap_reps)
+               .reference_coefficients(reference_coeffs);
+
+        if let Some(weights) = &args.weights {
+            builder.weights(weights);
+        }
+
+        if let Some(sel_outcome) = &args.selection_outcome {
+            if let Some(sel_predictors) = &args.selection_predictors {
+                let sel_preds_refs: Vec<&str> = sel_predictors.iter().map(AsRef::as_ref).collect();
+                builder.heckman_selection(sel_outcome, &sel_preds_refs);
+            } else {
+                return Err("Selection predictors must be provided if selection outcome is specified".into());
+            }
+        }
 
         let results = builder.run()?;
         results.summary();
+        
+        if let Some(path) = args.output_json {
+            let json = results.to_json().map_err(|e| format!("Failed to serialize to JSON: {}", e))?;
+            std::fs::write(path, json)?;
+        }
+
+        if let Some(path) = args.output_markdown {
+            let md = results.to_markdown();
+            std::fs::write(path, md)?;
+        }
+        
     } else if args.analysis_type == "quantile" {
         let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
         let quantiles = args
