@@ -24,33 +24,92 @@ pub struct OlsResult {
 ///
 /// A `Result` containing the `OlsResult` on success, or an `OaxacaError` if the
 /// `X'X` matrix is singular and cannot be inverted.
-pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>) -> Result<OlsResult, OaxacaError> {
-    // Calculate X'X
-    let xtx = x.transpose() * x;
+/// Performs an Ordinary Least Squares (OLS) or Weighted Least Squares (WLS) regression.
+///
+/// The function calculates the coefficient vector `β` using the formula:
+/// `β = (X'WX)⁻¹ * X'Wy` (where W is the weight matrix, Identity if unweighted)
+///
+/// # Arguments
+///
+/// * `y` - A `DVector` representing the outcome variable.
+/// * `x` - A `DMatrix` representing the predictor variables. It is crucial that this
+///   matrix includes a column of ones if an intercept is desired in the model.
+/// * `weights` - An optional `DVector` of sample weights.
+///
+/// # Returns
+///
+/// A `Result` containing the `OlsResult` on success, or an `OaxacaError` if the
+/// `X'WX` matrix is singular and cannot be inverted.
+pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>, weights: Option<&DVector<f64>>) -> Result<OlsResult, OaxacaError> {
+    let (xtx, xty, n_obs) = if let Some(w) = weights {
+        // Weighted Least Squares
+        // We want to minimize (y - Xβ)'W(y - Xβ)
+        // Normal equations: (X'WX)β = X'Wy
+        
+        // Efficiently compute X'WX and X'Wy without creating the full diagonal matrix W
+        // X'WX = \sum w_i * x_i * x_i'
+        // X'Wy = \sum w_i * x_i * y_i
+        
+        // Alternative: Transform data X* = \sqrt{W}X, y* = \sqrt{W}y
+        // Then run OLS on X*, y*
+        let w_sqrt = w.map(|v| v.sqrt());
+        
+        // Scale X by sqrt(weights) row-wise
+        let mut x_w = x.clone();
+        for j in 0..x.ncols() {
+            let mut col = x_w.column_mut(j);
+            col.component_mul_assign(&w_sqrt);
+        }
+        
+        // Scale y by sqrt(weights)
+        let y_w = y.component_mul(&w_sqrt);
+        
+        let xtx = x_w.transpose() * &x_w;
+        let xty = x_w.transpose() * &y_w;
+        
+        // Effective sample size? Usually just sum of weights or N?
+        // For variance estimation in survey data, it's complicated.
+        // But for standard WLS (heteroskedasticity), we use N.
+        // If weights are frequency weights, we use sum(w).
+        // Let's assume sampling weights/frequency weights -> sum(w).
+        let n = w.sum();
+        
+        (xtx, xty, n)
+    } else {
+        // Ordinary Least Squares
+        let xtx = x.transpose() * x;
+        let xty = x.transpose() * y;
+        let n = x.nrows() as f64;
+        (xtx, xty, n)
+    };
 
-    // Attempt to invert the X'X matrix.
-    // This is the most likely point of failure if the predictors are multicollinear.
+    // Attempt to invert the X'X (or X'WX) matrix.
     let xtx_inv = xtx.try_inverse().ok_or_else(|| {
         OaxacaError::NalgebraError(
-            "Failed to invert X'X matrix. This is likely due to perfect multicollinearity in the predictors.".to_string(),
+            "Failed to invert matrix. This is likely due to perfect multicollinearity.".to_string(),
         )
     })?;
-
-    // Calculate X'y
-    let xty = x.transpose() * y;
 
     // Calculate the coefficients: β = (X'X)⁻¹ * X'y
     let coefficients = &xtx_inv * xty;
 
-    // Calculate residuals
+    // Calculate residuals (Raw residuals: y - Xβ)
     let y_hat = x * &coefficients;
     let residuals = y - y_hat;
 
     // Calculate residual variance
-    let n = x.nrows() as f64;
+    // For WLS: e'We / (n - k)
     let k = x.ncols() as f64;
-    let sse = residuals.transpose() * &residuals;
-    let sigma_squared = sse[(0, 0)] / (n - k);
+    
+    let sse = if let Some(w) = weights {
+        // Weighted Sum of Squared Errors
+        let weighted_residuals = residuals.component_mul(w); // e * w
+        residuals.dot(&weighted_residuals) // e' * (w * e) = \sum w_i * e_i^2
+    } else {
+        residuals.norm_squared()
+    };
+    
+    let sigma_squared = sse / (n_obs - k);
 
     // Calculate variance-covariance matrix
     let vcov = xtx_inv * sigma_squared;
@@ -82,7 +141,7 @@ mod tests {
         );
         let y = DVector::from_vec(vec![1.0, 3.0, 5.0, 7.0, 9.0]);
 
-        let result = ols(&y, &x).expect("OLS calculation failed on valid data");
+        let result = ols(&y, &x, None).expect("OLS calculation failed on valid data");
         let coeffs = result.coefficients;
 
         // Check that the calculated coefficients are very close to the true values.
@@ -107,7 +166,7 @@ mod tests {
         );
         let y = DVector::from_vec(vec![1.0, 2.0, 3.0]);
 
-        let result = ols(&y, &x);
+        let result = ols(&y, &x, None);
 
         // Assert that the result is an error and that it's the specific error we expect.
         assert!(result.is_err());

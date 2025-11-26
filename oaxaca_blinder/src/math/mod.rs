@@ -5,3 +5,4 @@ pub mod rif;
 pub mod diagnostics;
 pub mod kde;
 pub mod logit;
+pub mod probit;
