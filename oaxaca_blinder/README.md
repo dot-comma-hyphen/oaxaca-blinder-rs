@@ -184,28 +184,39 @@ The results are nearly identical, confirming the correctness of the Rust impleme
 <details>
 <summary><strong>Deep Dive: The Indexing Problem & Reference Groups</strong></summary>
 
-The choice of `β*` determines how the interaction term is allocated between the explained and unexplained components. This library supports:
+The decomposition depends on the choice of the non-discriminatory coefficient vector $\beta^*$. The general decomposition equation is:
 
--   **Group A / Group B:** Uses one group's coefficients as the reference.
--   **Pooled (Neumark):** Uses coefficients from a pooled regression of both groups.
--   **Weighted (Cotton):** Uses a weighted average of the coefficients.
+$$ \Delta \bar{Y} = \underbrace{(\bar{X}_A - \bar{X}_B)'\beta^*}_{\text{Explained}} + \underbrace{\bar{X}_A'(\beta_A - \beta^*) + \bar{X}_B'(\beta^* - \beta_B)}_{\text{Unexplained}} $$
+
+This library supports:
+
+-   **Group A / Group B**: Uses $\beta_A$ or $\beta_B$ as the reference.
+-   **Pooled (Neumark)**: Uses $\beta^*$ from a pooled regression of both groups.
+-   **Weighted (Cotton)**: Uses a weighted average: $\beta^* = w\beta_A + (1-w)\beta_B$.
 
 </details>
 
 <details>
 <summary><strong>Deep Dive: Categorical Variables (Yun Normalization)</strong></summary>
 
-Standard detailed decomposition is sensitive to the choice of the omitted base category for dummy variables. This library implements **Yun's normalization**, which transforms coefficients to be invariant to the base category choice, ensuring robust detailed results.
+Standard detailed decomposition is sensitive to the choice of the omitted base category for dummy variables. This library implements **Yun's normalization**, which transforms coefficients to be invariant to the base category choice:
+
+$$ \tilde{\beta}_{k} = \beta_{k} + \bar{\beta}_k $$
+
+Where $\bar{\beta}_k$ is the mean of the coefficients for the categorical variable $k$. This ensures robust detailed results.
 
 </details>
 
 <details>
 <summary><strong>Deep Dive: JMP Decomposition</strong></summary>
 
-The **Juhn-Murphy-Pierce (JMP)** method decomposes the *change* in the gap over time into:
-1.  **Quantity Effect:** Changes in observable characteristics.
-2.  **Price Effect:** Changes in returns to characteristics.
-3.  **Gap Effect:** Changes in unobserved residual inequality.
+The **Juhn-Murphy-Pierce (JMP)** method decomposes the *change* in the gap over time (or between distributions) into three components:
+
+$$ \Delta \bar{Y} = \underbrace{\Delta X \beta}_{\text{Quantity Effect}} + \underbrace{X \Delta \beta}_{\text{Price Effect}} + \underbrace{\Delta \epsilon}_{\text{Gap Effect}} $$
+
+1.  **Quantity Effect**: Changes in observable characteristics ($X$).
+2.  **Price Effect**: Changes in returns to characteristics ($\beta$).
+3.  **Gap Effect**: Changes in the distribution of unobserved residuals.
 
 </details>
 
