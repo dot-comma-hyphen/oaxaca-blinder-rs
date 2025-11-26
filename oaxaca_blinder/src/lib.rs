@@ -68,13 +68,14 @@ mod inference;
 use crate::math::ols::{ols};
 use crate::decomposition::{
     three_fold_decomposition, two_fold_decomposition, detailed_decomposition,
-    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent,
+    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent, BudgetAdjustment,
 };
 use crate::math::normalization::normalize_categorical_coefficients;
 use crate::inference::bootstrap_stats;
 pub use crate::decomposition::ReferenceCoefficients;
 pub mod quantile_decomposition;
 pub use crate::quantile_decomposition::QuantileDecompositionBuilder;
+use crate::math::rif::calculate_rif;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -132,6 +133,8 @@ struct SinglePassResult {
     detailed_explained: Vec<DetailedComponent>,
     detailed_unexplained: Vec<DetailedComponent>,
     total_gap: f64,
+    residuals_a: DVector<f64>,
+    residuals_b: DVector<f64>,
 }
 
 impl OaxacaBuilder {
@@ -393,7 +396,62 @@ impl OaxacaBuilder {
 
         let total_gap = y_a.mean() - y_b.mean();
 
-        Ok(SinglePassResult { three_fold, two_fold, detailed_explained, detailed_unexplained, total_gap })
+        Ok(SinglePassResult { 
+            three_fold, 
+            two_fold, 
+            detailed_explained, 
+            detailed_unexplained, 
+            total_gap,
+            residuals_a: ols_a.residuals,
+            residuals_b: ols_b.residuals,
+        })
+    }
+
+    /// Performs a RIF-Regression decomposition for a specific quantile.
+    ///
+    /// This method transforms the outcome variable into its Recentered Influence Function (RIF)
+    /// for each group separately and then performs the standard Oaxaca-Blinder decomposition
+    /// on the transformed variable. This allows for decomposing the difference in quantiles
+    /// (e.g., the 90th percentile gap) into explained and unexplained components.
+    ///
+    /// # Arguments
+    ///
+    /// * `quantile` - The target quantile (e.g., 0.9 for the 90th percentile).
+    pub fn decompose_quantile(&self, quantile: f64) -> Result<OaxacaResults, OaxacaError> {
+        // 1. Split data into groups
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups".to_string())); }
+        
+        let group_b_name = self.reference_group.as_str();
+        let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
+        let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
+
+        let df_a = self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?;
+        let df_b = self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?;
+
+        // 2. Calculate RIF for each group
+        let rif_a = calculate_rif(df_a.column(&self.outcome)?, quantile).map_err(OaxacaError::PolarsError)?;
+        let rif_b = calculate_rif(df_b.column(&self.outcome)?, quantile).map_err(OaxacaError::PolarsError)?;
+
+        // 3. Replace outcome with RIF
+        let mut df_a_mod = df_a.clone();
+        df_a_mod.with_column(rif_a)?;
+        
+        let mut df_b_mod = df_b.clone();
+        df_b_mod.with_column(rif_b)?;
+
+        // 4. Combine back
+        let df_mod = df_a_mod.vstack(&df_b_mod)?;
+
+        // 5. Create new builder and run
+        let mut builder = OaxacaBuilder::new(df_mod, &self.outcome, &self.group, &self.reference_group);
+        builder.predictors(&self.predictors.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+               .categorical_predictors(&self.categorical_predictors.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+               .bootstrap_reps(self.bootstrap_reps)
+               .reference_coefficients(self.reference_coeffs.clone())
+               .normalize(&self.normalization_vars.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+
+        builder.run()
     }
 
     /// Executes the Oaxaca-Blinder decomposition.
@@ -490,6 +548,7 @@ impl OaxacaBuilder {
             three_fold: DecompositionDetail { aggregate: three_fold_agg, detailed: Vec::new() },
             n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
             n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
+            residuals: point_estimates.residuals_b.iter().copied().collect(),
         })
     }
 
@@ -543,6 +602,9 @@ pub struct OaxacaResults {
     n_a: usize,
     /// The number of observations in the reference group (Group B).
     n_b: usize,
+    /// The residuals of the reference group (Group B) from the decomposition model.
+    /// These represent the "unexplained" part of the outcome for each individual.
+    residuals: Vec<f64>,
 }
 
 impl OaxacaResults {
@@ -655,6 +717,79 @@ impl OaxacaResults {
     /// Exports the results to a JSON string.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
+    }
+
+    /// Optimizes the allocation of a remediation budget to reduce the pay gap.
+    ///
+    /// This method identifies the individuals in the reference group (Group B) with the largest
+    /// negative unexplained residuals (i.e., those who are most underpaid relative to their
+    /// observable characteristics) and calculates the necessary adjustments to bring them
+    /// closer to their predicted pay, subject to the budget and target gap constraints.
+    ///
+    /// # Arguments
+    ///
+    /// * `budget` - The maximum total amount to spend on adjustments.
+    /// * `target_gap` - The desired final pay gap (difference in means).
+    ///
+    /// # Returns
+    ///
+    /// A vector of `BudgetAdjustment` structs detailing who should get a raise and how much.
+    pub fn optimize_budget(&self, budget: f64, target_gap: f64) -> Vec<BudgetAdjustment> {
+        let current_gap = self.total_gap;
+        // If the gap is already smaller than or equal to the target, no adjustments needed.
+        if current_gap <= target_gap {
+            return Vec::new();
+        }
+
+        let required_reduction = current_gap - target_gap;
+        // Total amount needed to reduce the gap by required_reduction is required_reduction * n_b
+        let total_needed = required_reduction * self.n_b as f64;
+        
+        // We can't spend more than the budget, and we don't need to spend more than total_needed.
+        let effective_budget = budget.min(total_needed);
+        
+        // Identify underpaid individuals (negative residuals) in Group B
+        let mut candidates: Vec<(usize, f64)> = self.residuals.iter()
+            .enumerate()
+            .filter(|(_, &r)| r < 0.0)
+            .map(|(i, &r)| (i, r))
+            .collect();
+            
+        // Sort by residual ascending (most negative first). 
+        // We want to fix the largest underpayments first.
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        let mut adjustments = Vec::new();
+        let mut spent = 0.0;
+        
+        for (index, residual) in candidates {
+            if spent >= effective_budget {
+                break;
+            }
+            
+            // The maximum raise for this individual is the amount to bring their residual to 0.
+            let max_raise = -residual; 
+            let remaining_budget = effective_budget - spent;
+            
+            // Give them the full correction or whatever is left in the budget/needed.
+            let raise = if max_raise <= remaining_budget {
+                max_raise
+            } else {
+                remaining_budget
+            };
+            
+            // Avoid tiny adjustments due to floating point precision
+            if raise > 1e-9 {
+                adjustments.push(BudgetAdjustment {
+                    index,
+                    original_residual: residual,
+                    adjustment: raise,
+                });
+                spent += raise;
+            }
+        }
+        
+        adjustments
     }
 }
 

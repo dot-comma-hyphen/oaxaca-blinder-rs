@@ -1,4 +1,5 @@
 use nalgebra::DVector;
+use serde::Serialize;
 
 /// Represents the choice of reference coefficients for the two-fold decomposition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +40,17 @@ pub struct TwoFoldDecomposition {
 pub struct DetailedComponent {
     pub variable_name: String,
     pub contribution: f64,
+}
+
+/// Represents a recommended adjustment for an individual to improve pay equity.
+#[derive(Debug, Clone, Serialize)]
+pub struct BudgetAdjustment {
+    /// The index of the individual in the reference group (Group B) data.
+    pub index: usize,
+    /// The original unexplained residual for this individual (negative means underpaid).
+    pub original_residual: f64,
+    /// The recommended adjustment amount (raise).
+    pub adjustment: f64,
 }
 
 /// Computes the two-fold Oaxaca-Blinder decomposition.

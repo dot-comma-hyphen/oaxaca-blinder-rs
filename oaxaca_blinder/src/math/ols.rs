@@ -6,6 +6,7 @@ use nalgebra::{DMatrix, DVector};
 pub struct OlsResult {
     pub coefficients: DVector<f64>,
     pub vcov: DMatrix<f64>,
+    pub residuals: DVector<f64>,
 }
 
 /// Performs an Ordinary Least Squares (OLS) regression.
@@ -48,13 +49,13 @@ pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>) -> Result<OlsResult, OaxacaError>
     // Calculate residual variance
     let n = x.nrows() as f64;
     let k = x.ncols() as f64;
-    let sse = residuals.transpose() * residuals;
+    let sse = residuals.transpose() * &residuals;
     let sigma_squared = sse[(0, 0)] / (n - k);
 
     // Calculate variance-covariance matrix
     let vcov = xtx_inv * sigma_squared;
 
-    Ok(OlsResult { coefficients, vcov })
+    Ok(OlsResult { coefficients, vcov, residuals })
 }
 
 

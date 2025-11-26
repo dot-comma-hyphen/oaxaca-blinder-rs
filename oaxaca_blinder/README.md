@@ -305,10 +305,57 @@ for component in results.three_fold().detailed() {
 }
 
 // Example: Find the specific contribution of 'education' to the explained gap
-let explained_details = results.two_fold().detailed();
+let explained_details = results.two_fold().detailed_explained();
 if let Some(education_explained) = explained_details.iter().find(|c| c.name() == "education") {
     println!("\nExplained contribution of education: {:.4}", education_explained.estimate());
 }
+```
+
+## "Cheapest Fix" Solver (Budget Optimization)
+
+This library includes a unique feature for HR and policy-making contexts: the **Cheapest Fix Solver**. 
+
+The `optimize_budget` method helps you answer the question: *"Given a limited budget, how can we reduce the pay gap as much as possible?"*
+
+It works by identifying individuals in the disadvantaged group (Group B) with the largest **negative unexplained residuals**—i.e., those who are most underpaid relative to what the model predicts they should earn based on their qualifications. It then calculates the minimum adjustments needed to bring them closer to their predicted fair pay.
+
+### Usage
+
+```rust
+// ... run the decomposition first ...
+let results = builder.run()?;
+
+// Scenario: You have a budget of $200,000 and want to reduce the gap to 0.05 (or less).
+let budget = 200_000.0;
+let target_gap = 0.05;
+
+let adjustments = results.optimize_budget(budget, target_gap);
+
+println!("Recommended Adjustments:");
+for adj in adjustments {
+    println!(
+        "Give a raise of ${:.2} to individual at index {} (Original Residual: {:.4})",
+        adj.adjustment, adj.index, adj.original_residual
+    );
+}
+```
+
+## Exporting Results
+
+You can easily export the decomposition results to various formats for inclusion in reports or further analysis.
+
+```rust
+// Export to a LaTeX table fragment
+let latex_table = results.to_latex();
+println!("{}", latex_table);
+
+// Export to a Markdown table
+let markdown_table = results.to_markdown();
+println!("{}", markdown_table);
+
+// Export to JSON (requires `serde_json`)
+let json_output = results.to_json()?;
+println!("{}", json_output);
 ```
 
 ## License
