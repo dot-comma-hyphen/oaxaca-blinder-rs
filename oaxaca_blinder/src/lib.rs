@@ -76,6 +76,10 @@ pub use crate::decomposition::ReferenceCoefficients;
 pub mod quantile_decomposition;
 pub use crate::quantile_decomposition::QuantileDecompositionBuilder;
 use crate::math::rif::calculate_rif;
+pub mod jmp;
+pub use crate::jmp::decompose_changes;
+pub mod dfl;
+pub use crate::dfl::run_dfl;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -135,6 +139,9 @@ struct SinglePassResult {
     total_gap: f64,
     residuals_a: DVector<f64>,
     residuals_b: DVector<f64>,
+    xa_mean: DVector<f64>,
+    xb_mean: DVector<f64>,
+    beta_star: DVector<f64>,
 }
 
 impl OaxacaBuilder {
@@ -307,7 +314,7 @@ impl OaxacaBuilder {
                 base_coeffs_star = base_coeffs_b.clone();
                 beta_b
             }
-            ReferenceCoefficients::Pooled => {
+            ReferenceCoefficients::Pooled | ReferenceCoefficients::Neumark => {
                 let mut df_pooled = df_a.vstack(&df_b)?;
                 let group_indicator = Series::new("group_indicator", df_pooled.column(&self.group)?.equal(group_a_name)?.into_series().cast(&DataType::Float64)?);
                 df_pooled.with_column(group_indicator)?;
@@ -327,7 +334,7 @@ impl OaxacaBuilder {
                 beta_star_owned = ols_pooled.coefficients.remove_row(group_indicator_idx);
                 &beta_star_owned
             }
-            ReferenceCoefficients::Weighted => {
+            ReferenceCoefficients::Weighted | ReferenceCoefficients::Cotton => {
                 let n_a = df_a.height() as f64;
                 let n_b = df_b.height() as f64;
                 let total_n = n_a + n_b;
@@ -404,6 +411,9 @@ impl OaxacaBuilder {
             total_gap,
             residuals_a: ols_a.residuals,
             residuals_b: ols_b.residuals,
+            xa_mean: xa_mean.clone(),
+            xb_mean: xb_mean.clone(),
+            beta_star: beta_star.clone(),
         })
     }
 
@@ -549,6 +559,9 @@ impl OaxacaBuilder {
             n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
             n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
             residuals: point_estimates.residuals_b.iter().copied().collect(),
+            xa_mean: point_estimates.xa_mean,
+            xb_mean: point_estimates.xb_mean,
+            beta_star: point_estimates.beta_star,
         })
     }
 
@@ -605,6 +618,15 @@ pub struct OaxacaResults {
     /// The residuals of the reference group (Group B) from the decomposition model.
     /// These represent the "unexplained" part of the outcome for each individual.
     residuals: Vec<f64>,
+    /// The mean of the predictors for Group A.
+    #[serde(skip)]
+    xa_mean: DVector<f64>,
+    /// The mean of the predictors for Group B.
+    #[serde(skip)]
+    xb_mean: DVector<f64>,
+    /// The reference coefficients used in the decomposition.
+    #[serde(skip)]
+    beta_star: DVector<f64>,
 }
 
 impl OaxacaResults {

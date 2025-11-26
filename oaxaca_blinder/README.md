@@ -358,6 +358,69 @@ let json_output = results.to_json()?;
 println!("{}", json_output);
 ```
 
+## Advanced Decomposition Features
+
+### 1. Reference Group Solvers (Neumark & Cotton)
+
+The library supports alternative assumptions about the "non-discriminatory" wage structure, solving the Index Number Problem.
+
+-   **Cotton's Method:** Assumes the non-discriminatory structure is a weighted average of both groups.
+-   **Neumark's Method:** Runs a pooled regression to derive the "fair" coefficients.
+
+```rust
+use oaxaca_blinder::{OaxacaBuilder, ReferenceCoefficients};
+
+// Cotton's Method
+let results_cotton = OaxacaBuilder::new(df.clone(), "wage", "gender", "F")
+    .predictors(&["education", "experience"])
+    .reference_coefficients(ReferenceCoefficients::Cotton)
+    .run()?;
+
+// Neumark's Method
+let results_neumark = OaxacaBuilder::new(df.clone(), "wage", "gender", "F")
+    .predictors(&["education", "experience"])
+    .reference_coefficients(ReferenceCoefficients::Neumark)
+    .run()?;
+```
+
+### 2. Juhn-Murphy-Pierce (JMP) Decomposition
+
+Decompose the **change** in the pay gap over time into three components:
+-   **Quantity Effect:** Changes in the distribution of observable characteristics.
+-   **Price Effect:** Changes in the returns to those characteristics.
+-   **Gap Effect:** Changes in the unobserved residual inequality.
+
+```rust
+use oaxaca_blinder::{OaxacaBuilder, decompose_changes};
+
+// Setup builders for two time periods
+let builder_t1 = OaxacaBuilder::new(df_2023, "wage", "gender", "F").predictors(&["education"]);
+let builder_t2 = OaxacaBuilder::new(df_2024, "wage", "gender", "F").predictors(&["education"]);
+
+// Run JMP Decomposition
+let jmp_results = decompose_changes(&builder_t1, &builder_t2)?;
+jmp_results.summary();
+```
+
+### 3. DiNardo-Fortin-Lemieux (DFL) Reweighting
+
+A non-parametric alternative to Oaxaca-Blinder that uses propensity score reweighting (via Logistic Regression) and Kernel Density Estimation (KDE) to visualize counterfactual distributions.
+
+```rust
+use oaxaca_blinder::run_dfl;
+
+let dfl_results = run_dfl(
+    &df,
+    "wage",
+    "gender",
+    "F", // Reference Group
+    &["education".to_string(), "experience".to_string()] // Predictors for Propensity Score
+)?;
+
+// Access densities for plotting
+// dfl_results.grid, dfl_results.density_a, dfl_results.density_b_counterfactual
+```
+
 ## License
 
 This project is licensed under the MIT License.

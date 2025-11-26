@@ -12,6 +12,10 @@ pub enum ReferenceCoefficients {
     Pooled,
     /// Use a weighted average of the two groups' coefficients (Cotton's method).
     Weighted,
+    /// Alias for Weighted (Cotton's method).
+    Cotton,
+    /// Alias for Pooled (Neumark's method).
+    Neumark,
 }
 
 impl Default for ReferenceCoefficients {
