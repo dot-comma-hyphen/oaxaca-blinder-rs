@@ -59,7 +59,7 @@ pub fn calculate_vif(
             &x_matrix_ndarray.into_raw_vec(),
         );
 
-        let ols_result = match ols(&y, &x_matrix) {
+        let ols_result = match ols(&y, &x_matrix, None) {
             Ok(res) => res,
             Err(OaxacaError::NalgebraError(msg)) if msg.contains("Failed to invert X'X matrix") => {
                 results.push(VifResult {

@@ -68,7 +68,8 @@ mod tests {
 
         let mut coeffs = DVector::from_vec(vec![10.0, 2.0, 4.0]); // Intercept, cat_B, cat_C
         let mut vcov = DMatrix::zeros(3, 3);
-        let mut ols_result = OlsResult { coefficients: coeffs, vcov };
+        let residuals = DVector::zeros(0); // Empty residuals for test
+        let mut ols_result = OlsResult { coefficients: coeffs, vcov, residuals };
 
         let predictor_names = vec![
             "intercept".to_string(),

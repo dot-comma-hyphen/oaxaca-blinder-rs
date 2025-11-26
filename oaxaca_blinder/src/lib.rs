@@ -68,13 +68,25 @@ mod inference;
 use crate::math::ols::{ols};
 use crate::decomposition::{
     three_fold_decomposition, two_fold_decomposition, detailed_decomposition,
-    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent,
+    ThreeFoldDecomposition, TwoFoldDecomposition, DetailedComponent, BudgetAdjustment,
 };
 use crate::math::normalization::normalize_categorical_coefficients;
 use crate::inference::bootstrap_stats;
 pub use crate::decomposition::ReferenceCoefficients;
 pub mod quantile_decomposition;
 pub use crate::quantile_decomposition::QuantileDecompositionBuilder;
+use crate::math::rif::calculate_rif;
+pub mod jmp;
+pub use crate::jmp::decompose_changes;
+pub mod dfl;
+pub use crate::dfl::run_dfl;
+pub mod heckman;
+pub mod formula;
+pub use crate::heckman::heckman_two_step;
+use crate::formula::Formula;
+
+#[cfg(feature = "python")]
+pub mod python;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -123,6 +135,9 @@ pub struct OaxacaBuilder {
     bootstrap_reps: usize,
     reference_coeffs: ReferenceCoefficients,
     normalization_vars: Vec<String>,
+    weights_col: Option<String>,
+    selection_outcome: Option<String>,
+    selection_predictors: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -132,6 +147,11 @@ struct SinglePassResult {
     detailed_explained: Vec<DetailedComponent>,
     detailed_unexplained: Vec<DetailedComponent>,
     total_gap: f64,
+    residuals_a: DVector<f64>,
+    residuals_b: DVector<f64>,
+    xa_mean: DVector<f64>,
+    xb_mean: DVector<f64>,
+    beta_star: DVector<f64>,
 }
 
 impl OaxacaBuilder {
@@ -144,7 +164,7 @@ impl OaxacaBuilder {
     /// * `group` - The name of the column that divides the data into two groups (e.g., "gender").
     /// * `reference_group` - The value within the `group` column that identifies the reference group (the lower-outcome group, or Group B).
     pub fn new(dataframe: DataFrame, outcome: &str, group: &str, reference_group: &str) -> Self {
-        OaxacaBuilder {
+        Self {
             dataframe,
             outcome: outcome.to_string(),
             predictors: Vec::new(),
@@ -152,9 +172,38 @@ impl OaxacaBuilder {
             group: group.to_string(),
             reference_group: reference_group.to_string(),
             bootstrap_reps: 100,
-            reference_coeffs: ReferenceCoefficients::default(),
+            reference_coeffs: ReferenceCoefficients::GroupA,
             normalization_vars: Vec::new(),
+            weights_col: None,
+            selection_outcome: None,
+            selection_predictors: Vec::new(),
         }
+    }
+
+    /// Creates a new `OaxacaBuilder` using an R-style formula.
+    ///
+    /// # Arguments
+    ///
+    /// * `dataframe` - The Polars DataFrame containing the data.
+    /// * `formula` - A string representing the model formula (e.g., "wage ~ education + experience + C(sector)").
+    /// * `group` - The name of the column defining the two groups.
+    /// * `reference_group` - The value in the `group` column representing the reference group (Group B).
+    pub fn from_formula(dataframe: DataFrame, formula: &str, group: &str, reference_group: &str) -> Result<Self, OaxacaError> {
+        let parsed_formula = Formula::parse(formula)?;
+        Ok(Self {
+            dataframe,
+            outcome: parsed_formula.outcome,
+            predictors: parsed_formula.predictors,
+            categorical_predictors: parsed_formula.categorical_predictors,
+            group: group.to_string(),
+            reference_group: reference_group.to_string(),
+            bootstrap_reps: 100,
+            reference_coeffs: ReferenceCoefficients::GroupA,
+            normalization_vars: Vec::new(),
+            weights_col: None,
+            selection_outcome: None,
+            selection_predictors: Vec::new(),
+        })
     }
 
     /// Sets the reference coefficients for the decomposition.
@@ -205,8 +254,30 @@ impl OaxacaBuilder {
         self
     }
 
+    /// Sets the column name for sample weights.
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - The name of the column containing sample weights.
+    pub fn weights(&mut self, weights: &str) -> &mut Self {
+        self.weights_col = Some(weights.to_string());
+        self
+    }
 
-    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String], extra_predictors: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
+    /// Configures the Heckman selection model.
+    ///
+    /// # Arguments
+    ///
+    /// * `outcome` - The binary selection variable (e.g., "employed").
+    /// * `predictors` - The predictors for the selection equation (should include exclusion restriction).
+    pub fn heckman_selection(&mut self, outcome: &str, predictors: &[&str]) -> &mut Self {
+        self.selection_outcome = Some(outcome.to_string());
+        self.selection_predictors = predictors.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+
+    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String], extra_predictors: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Option<DVector<f64>>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
         let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
         let y = DVector::from_vec(y_vec);
@@ -235,7 +306,16 @@ impl OaxacaBuilder {
         let x_matrix = x_df_selected.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
         let x_vec: Vec<f64> = x_matrix.iter().copied().collect();
         let final_names = x_df_selected.get_column_names().iter().map(|s| s.to_string()).collect();
-        Ok((DMatrix::from_row_slice(x_df_selected.height(), x_df_selected.width(), &x_vec), y, final_names))
+
+        let weights = if let Some(w_col) = &self.weights_col {
+            let w_series = df.column(w_col)?.f64()?;
+            let w_vec: Vec<f64> = w_series.into_iter().map(|opt| opt.unwrap_or(1.0)).collect();
+            Some(DVector::from_vec(w_vec))
+        } else {
+            None
+        };
+
+        Ok((DMatrix::from_row_slice(x_df_selected.height(), x_df_selected.width(), &x_vec), y, weights, final_names))
     }
 
     fn create_dummies_manual(&self, series: &Series) -> Result<(DataFrame, usize, String), OaxacaError> {
@@ -274,24 +354,135 @@ impl OaxacaBuilder {
         let df_b = df.filter(&df.column(&self.group)?.equal(group_b_name)?)?;
         if df_a.height() == 0 || df_b.height() == 0 { return Err(OaxacaError::InvalidGroupVariable("One group has no data".to_string())); }
 
-        let (x_a, y_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names, &[])?;
-        let (x_b, y_b, _) = self.prepare_data(&df_b, all_dummy_names, &[])?;
-
-        let mut ols_a = ols(&y_a, &x_a)?;
-        let mut ols_b = ols(&y_b, &x_b)?;
-
-        let xa_mean = x_a.row_mean().transpose();
-        let xb_mean = x_b.row_mean().transpose();
+        let (x_a, y_a, w_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names, &[])?;
+        let (x_b, y_b, w_b, _) = self.prepare_data(&df_b, all_dummy_names, &[])?;
 
         let mut base_coeffs_a = std::collections::HashMap::new();
         let mut base_coeffs_b = std::collections::HashMap::new();
-        if !self.normalization_vars.is_empty() {
-            base_coeffs_a = normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean, category_counts);
-            base_coeffs_b = normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean, category_counts);
-        }
 
-        let beta_a = &ols_a.coefficients;
-        let beta_b = &ols_b.coefficients;
+        let (beta_a_vec, beta_b_vec, xa_mean_vec, xb_mean_vec, final_predictor_names, residuals_a, residuals_b) = if let Some(sel_outcome) = &self.selection_outcome {
+            // Heckman Correction
+            
+            // Helper to prepare selection data
+            let prepare_selection = |df_group: &DataFrame| -> Result<(DMatrix<f64>, DVector<f64>, DMatrix<f64>), OaxacaError> {
+                // 1. Full Selection Data
+                let y_sel_series = df_group.column(sel_outcome)?.f64()?;
+                let y_sel_vec: Vec<f64> = y_sel_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
+                let y_sel = DVector::from_vec(y_sel_vec);
+                
+                // Selection predictors
+                let mut x_sel_df = df_group.select(&self.selection_predictors)?;
+                let intercept = Series::new("intercept", vec![1.0; df_group.height()]);
+                x_sel_df.with_column(intercept)?;
+                let mut cols = vec!["intercept".to_string()];
+                cols.extend(self.selection_predictors.clone());
+                let x_sel_df = x_sel_df.select(&cols)?;
+                
+                let x_sel_mat = x_sel_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
+                let x_sel_vec: Vec<f64> = x_sel_mat.iter().copied().collect();
+                let x_sel = DMatrix::from_row_slice(x_sel_df.height(), x_sel_df.width(), &x_sel_vec);
+                
+                // 2. Subset X Selection (where y_sel = 1)
+                let mask = df_group.column(sel_outcome)?.equal(1)?;
+                let df_subset = df_group.filter(&mask)?;
+                
+                let mut x_sel_sub_df = df_subset.select(&self.selection_predictors)?;
+                x_sel_sub_df.with_column(Series::new("intercept", vec![1.0; df_subset.height()]))?;
+                let x_sel_sub_df = x_sel_sub_df.select(&cols)?;
+                
+                let x_sel_sub_mat = x_sel_sub_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
+                let x_sel_sub_vec: Vec<f64> = x_sel_sub_mat.iter().copied().collect();
+                let x_sel_sub = DMatrix::from_row_slice(x_sel_sub_df.height(), x_sel_sub_df.width(), &x_sel_sub_vec);
+                
+                Ok((x_sel, y_sel, x_sel_sub))
+            };
+            
+            let (x_sel_a, y_sel_a, x_sel_sub_a) = prepare_selection(&df_a)?;
+            let (x_sel_b, y_sel_b, x_sel_sub_b) = prepare_selection(&df_b)?;
+            
+            let filter_outcome_data = |x: &DMatrix<f64>, y: &DVector<f64>, df: &DataFrame| -> Result<(DMatrix<f64>, DVector<f64>), OaxacaError> {
+                let mask = df.column(sel_outcome)?.equal(1)?;
+                let mut rows = Vec::new();
+                let mut y_vals = Vec::new();
+                for i in 0..df.height() {
+                    if mask.get(i) == Some(true) {
+                        rows.push(x.row(i).into_owned());
+                        y_vals.push(y[i]);
+                    }
+                }
+                if rows.is_empty() { return Err(OaxacaError::InvalidGroupVariable("No observed outcomes in group".to_string())); }
+                let x_filtered = DMatrix::from_rows(&rows);
+                let y_filtered = DVector::from_vec(y_vals);
+                Ok((x_filtered, y_filtered))
+            };
+            
+            let (x_a_filt, y_a_filt) = filter_outcome_data(&x_a, &y_a, &df_a)?;
+            let (x_b_filt, y_b_filt) = filter_outcome_data(&x_b, &y_b, &df_b)?;
+            
+            let res_a = heckman_two_step(&y_sel_a, &x_sel_a, &y_a_filt, &x_a_filt, &x_sel_sub_a)?;
+            let res_b = heckman_two_step(&y_sel_b, &x_sel_b, &y_b_filt, &x_b_filt, &x_sel_sub_b)?;
+            
+            let mut beta_a = res_a.outcome_coeffs;
+            let mut beta_b = res_b.outcome_coeffs;
+            
+            let k = beta_a.len();
+            beta_a = beta_a.insert_row(k, res_a.imr_coeff);
+            beta_b = beta_b.insert_row(k, res_b.imr_coeff);
+            
+            let mut xa_mean = x_a_filt.row_mean().transpose();
+            let mut xb_mean = x_b_filt.row_mean().transpose();
+            
+            let imr_mean_a = res_a.imr.mean();
+            let imr_mean_b = res_b.imr.mean();
+            
+            let k_x = xa_mean.len();
+            xa_mean = xa_mean.insert_row(k_x, imr_mean_a);
+            xb_mean = xb_mean.insert_row(k_x, imr_mean_b);
+            
+            let mut final_names = predictor_names.clone();
+            final_names.push("IMR".to_string());
+            
+            let resid_a = DVector::zeros(y_a_filt.len()); 
+            let resid_b = DVector::zeros(y_b_filt.len());
+            
+            (beta_a, beta_b, xa_mean, xb_mean, final_names, resid_a, resid_b)
+            
+        } else {
+            // Standard OLS
+            let mut ols_a = ols(&y_a, &x_a, w_a.as_ref())?;
+            let mut ols_b = ols(&y_b, &x_b, w_b.as_ref())?;
+            
+            // Calculate means (weighted if weights are present)
+            let calculate_mean = |x: &DMatrix<f64>, w: &Option<DVector<f64>>| -> DVector<f64> {
+                if let Some(weights) = w {
+                    let total_weight = weights.sum();
+                    let mut means = DVector::zeros(x.ncols());
+                    for j in 0..x.ncols() {
+                        let col = x.column(j);
+                        means[j] = col.dot(weights) / total_weight;
+                    }
+                    means
+                } else {
+                    x.row_mean().transpose()
+                }
+            };
+
+            let xa_mean = calculate_mean(&x_a, &w_a);
+            let xb_mean = calculate_mean(&x_b, &w_b);
+            
+            if !self.normalization_vars.is_empty() {
+                base_coeffs_a = normalize_categorical_coefficients(&mut ols_a, &predictor_names, &self.normalization_vars, &xa_mean, category_counts);
+                base_coeffs_b = normalize_categorical_coefficients(&mut ols_b, &predictor_names, &self.normalization_vars, &xb_mean, category_counts);
+            }
+            
+            (ols_a.coefficients, ols_b.coefficients, xa_mean, xb_mean, predictor_names, ols_a.residuals, ols_b.residuals)
+        };
+
+        let beta_a = &beta_a_vec;
+        let beta_b = &beta_b_vec;
+        let xa_mean = xa_mean_vec;
+        let xb_mean = xb_mean_vec;
+        let predictor_names = final_predictor_names;
 
         let mut base_coeffs_star = std::collections::HashMap::new();
         let beta_star_owned: DVector<f64>;
@@ -304,14 +495,14 @@ impl OaxacaBuilder {
                 base_coeffs_star = base_coeffs_b.clone();
                 beta_b
             }
-            ReferenceCoefficients::Pooled => {
+            ReferenceCoefficients::Pooled | ReferenceCoefficients::Neumark => {
                 let mut df_pooled = df_a.vstack(&df_b)?;
                 let group_indicator = Series::new("group_indicator", df_pooled.column(&self.group)?.equal(group_a_name)?.into_series().cast(&DataType::Float64)?);
                 df_pooled.with_column(group_indicator)?;
 
-                let (x_pooled, y_pooled, pooled_predictor_names) = self.prepare_data(&df_pooled, all_dummy_names, &["group_indicator".to_string()])?;
+                let (x_pooled, y_pooled, w_pooled, pooled_predictor_names) = self.prepare_data(&df_pooled, all_dummy_names, &["group_indicator".to_string()])?;
                 
-                let mut ols_pooled = ols(&y_pooled, &x_pooled)?;
+                let mut ols_pooled = ols(&y_pooled, &x_pooled, w_pooled.as_ref())?;
 
                 if !self.normalization_vars.is_empty() {
                     let n_a = df_a.height() as f64;
@@ -324,9 +515,9 @@ impl OaxacaBuilder {
                 beta_star_owned = ols_pooled.coefficients.remove_row(group_indicator_idx);
                 &beta_star_owned
             }
-            ReferenceCoefficients::Weighted => {
-                let n_a = df_a.height() as f64;
-                let n_b = df_b.height() as f64;
+            ReferenceCoefficients::Weighted | ReferenceCoefficients::Cotton => {
+                let n_a = if let Some(w) = &w_a { w.sum() } else { df_a.height() as f64 };
+                let n_b = if let Some(w) = &w_b { w.sum() } else { df_b.height() as f64 };
                 let total_n = n_a + n_b;
                 if total_n == 0.0 {
                     return Err(OaxacaError::InvalidGroupVariable("No data in groups for weighted coefficients.".to_string()));
@@ -349,7 +540,7 @@ impl OaxacaBuilder {
         let mut two_fold = two_fold_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star);
         let (mut detailed_explained, mut detailed_unexplained) = detailed_decomposition(&xa_mean, &xb_mean, beta_a, beta_b, beta_star, &predictor_names);
 
-        if !self.normalization_vars.is_empty() {
+        if !self.normalization_vars.is_empty() && self.selection_outcome.is_none() {
             for var in &self.normalization_vars {
                 let base_dummy_name = if let Some(name) = base_categories.get(var) {
                     name
@@ -391,9 +582,72 @@ impl OaxacaBuilder {
             }
         }
 
-        let total_gap = y_a.mean() - y_b.mean();
+        let total_gap = if let Some(w) = &w_a { y_a.dot(w) / w.sum() } else { y_a.mean() } 
+                      - if let Some(w) = &w_b { y_b.dot(w) / w.sum() } else { y_b.mean() };
 
-        Ok(SinglePassResult { three_fold, two_fold, detailed_explained, detailed_unexplained, total_gap })
+        Ok(SinglePassResult { 
+            three_fold, 
+            two_fold, 
+            detailed_explained, 
+            detailed_unexplained, 
+            total_gap,
+            residuals_a,
+            residuals_b,
+            xa_mean: xa_mean.clone(),
+            xb_mean: xb_mean.clone(),
+            beta_star: beta_star.clone(),
+        })
+    }
+
+    /// Performs a RIF-Regression decomposition for a specific quantile.
+    ///
+    /// This method transforms the outcome variable into its Recentered Influence Function (RIF)
+    /// for each group separately and then performs the standard Oaxaca-Blinder decomposition
+    /// on the transformed variable. This allows for decomposing the difference in quantiles
+    /// (e.g., the 90th percentile gap) into explained and unexplained components.
+    ///
+    /// # Arguments
+    ///
+    /// * `quantile` - The target quantile (e.g., 0.9 for the 90th percentile).
+    pub fn decompose_quantile(&self, quantile: f64) -> Result<OaxacaResults, OaxacaError> {
+        // 1. Split data into groups
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups".to_string())); }
+        
+        let group_b_name = self.reference_group.as_str();
+        let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
+        let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
+
+        let df_a = self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?;
+        let df_b = self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?;
+
+        // 2. Calculate RIF for each group
+        let rif_a = calculate_rif(df_a.column(&self.outcome)?, quantile).map_err(OaxacaError::PolarsError)?;
+        let rif_b = calculate_rif(df_b.column(&self.outcome)?, quantile).map_err(OaxacaError::PolarsError)?;
+
+        // 3. Replace outcome with RIF
+        let mut df_a_mod = df_a.clone();
+        df_a_mod.with_column(rif_a)?;
+        
+        let mut df_b_mod = df_b.clone();
+        df_b_mod.with_column(rif_b)?;
+
+        // 4. Combine back
+        let df_mod = df_a_mod.vstack(&df_b_mod)?;
+
+        // 5. Create new builder and run
+        let mut builder = OaxacaBuilder::new(df_mod, &self.outcome, &self.group, &self.reference_group);
+        builder.predictors(&self.predictors.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+               .categorical_predictors(&self.categorical_predictors.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+               .bootstrap_reps(self.bootstrap_reps)
+               .reference_coefficients(self.reference_coeffs.clone())
+               .normalize(&self.normalization_vars.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        
+        if let Some(w) = &self.weights_col {
+            builder.weights(w);
+        }
+
+        builder.run()
     }
 
     /// Executes the Oaxaca-Blinder decomposition.
@@ -490,6 +744,10 @@ impl OaxacaBuilder {
             three_fold: DecompositionDetail { aggregate: three_fold_agg, detailed: Vec::new() },
             n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
             n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
+            residuals: point_estimates.residuals_b.iter().copied().collect(),
+            xa_mean: point_estimates.xa_mean,
+            xb_mean: point_estimates.xb_mean,
+            beta_star: point_estimates.beta_star,
         })
     }
 
@@ -543,6 +801,18 @@ pub struct OaxacaResults {
     n_a: usize,
     /// The number of observations in the reference group (Group B).
     n_b: usize,
+    /// The residuals of the reference group (Group B) from the decomposition model.
+    /// These represent the "unexplained" part of the outcome for each individual.
+    residuals: Vec<f64>,
+    /// The mean of the predictors for Group A.
+    #[serde(skip)]
+    xa_mean: DVector<f64>,
+    /// The mean of the predictors for Group B.
+    #[serde(skip)]
+    xb_mean: DVector<f64>,
+    /// The reference coefficients used in the decomposition.
+    #[serde(skip)]
+    beta_star: DVector<f64>,
 }
 
 impl OaxacaResults {
@@ -655,6 +925,79 @@ impl OaxacaResults {
     /// Exports the results to a JSON string.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
+    }
+
+    /// Optimizes the allocation of a remediation budget to reduce the pay gap.
+    ///
+    /// This method identifies the individuals in the reference group (Group B) with the largest
+    /// negative unexplained residuals (i.e., those who are most underpaid relative to their
+    /// observable characteristics) and calculates the necessary adjustments to bring them
+    /// closer to their predicted pay, subject to the budget and target gap constraints.
+    ///
+    /// # Arguments
+    ///
+    /// * `budget` - The maximum total amount to spend on adjustments.
+    /// * `target_gap` - The desired final pay gap (difference in means).
+    ///
+    /// # Returns
+    ///
+    /// A vector of `BudgetAdjustment` structs detailing who should get a raise and how much.
+    pub fn optimize_budget(&self, budget: f64, target_gap: f64) -> Vec<BudgetAdjustment> {
+        let current_gap = self.total_gap;
+        // If the gap is already smaller than or equal to the target, no adjustments needed.
+        if current_gap <= target_gap {
+            return Vec::new();
+        }
+
+        let required_reduction = current_gap - target_gap;
+        // Total amount needed to reduce the gap by required_reduction is required_reduction * n_b
+        let total_needed = required_reduction * self.n_b as f64;
+        
+        // We can't spend more than the budget, and we don't need to spend more than total_needed.
+        let effective_budget = budget.min(total_needed);
+        
+        // Identify underpaid individuals (negative residuals) in Group B
+        let mut candidates: Vec<(usize, f64)> = self.residuals.iter()
+            .enumerate()
+            .filter(|(_, &r)| r < 0.0)
+            .map(|(i, &r)| (i, r))
+            .collect();
+            
+        // Sort by residual ascending (most negative first). 
+        // We want to fix the largest underpayments first.
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        let mut adjustments = Vec::new();
+        let mut spent = 0.0;
+        
+        for (index, residual) in candidates {
+            if spent >= effective_budget {
+                break;
+            }
+            
+            // The maximum raise for this individual is the amount to bring their residual to 0.
+            let max_raise = -residual; 
+            let remaining_budget = effective_budget - spent;
+            
+            // Give them the full correction or whatever is left in the budget/needed.
+            let raise = if max_raise <= remaining_budget {
+                max_raise
+            } else {
+                remaining_budget
+            };
+            
+            // Avoid tiny adjustments due to floating point precision
+            if raise > 1e-9 {
+                adjustments.push(BudgetAdjustment {
+                    index,
+                    original_residual: residual,
+                    adjustment: raise,
+                });
+                spent += raise;
+            }
+        }
+        
+        adjustments
     }
 }
 
