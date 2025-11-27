@@ -61,7 +61,7 @@ pub fn calculate_vif(
 
         let ols_result = match ols(&y, &x_matrix, None) {
             Ok(res) => res,
-            Err(OaxacaError::NalgebraError(msg)) if msg.contains("Failed to invert X'X matrix") => {
+            Err(OaxacaError::NalgebraError(msg)) if msg.contains("Failed to invert matrix") => {
                 results.push(VifResult {
                     variable_name: p.clone(),
                     vif_score: f64::INFINITY,

@@ -172,11 +172,9 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(OaxacaError::NalgebraError(msg)) => {
-                assert!(msg.contains("Failed to invert X'X matrix"));
+                assert!(msg.contains("Failed to invert matrix"));
             }
             _ => panic!("Expected a NalgebraError for a singular matrix, but got something else."),
         }
     }
-
-    
 }
