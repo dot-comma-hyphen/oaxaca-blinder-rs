@@ -173,10 +173,10 @@ Designed for performance, utilizing Rust's speed and parallelization (Rayon) for
 
 | Method | Rust (`oaxaca_blinder`) | Python (`statsmodels`) |
 | :--- | :--- | :--- |
-| **Raw Decomposition** | **0.16s** 🚀 | 0.29s |
-| **With 500 Bootstrap Reps** | **3.16s** 🚀 | ~150s (est.) |
+| **Raw Decomposition** | **0.02s** 🚀 | 0.26s |
+| **With 100 Bootstrap Reps** | **0.65s** 🚀 | N/A (No built-in bootstrap) |
 
-*Rust's parallelized bootstrapping makes standard error estimation orders of magnitude faster.*
+*Rust's raw decomposition is over **10x faster** than statsmodels.*
 
 ### Performance Comparison (Real-World Data)
 
