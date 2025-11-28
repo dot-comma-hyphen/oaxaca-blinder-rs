@@ -84,6 +84,10 @@ pub mod heckman;
 pub mod formula;
 pub use crate::heckman::heckman_two_step;
 use crate::formula::Formula;
+pub mod akm;
+pub use crate::akm::{AkmBuilder, AkmResult};
+pub mod matching;
+pub use crate::matching::engine::MatchingEngine;
 
 #[cfg(feature = "python")]
 pub mod python;

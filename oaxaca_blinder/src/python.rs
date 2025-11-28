@@ -120,10 +120,161 @@ fn decompose_from_csv(
     })
 }
 
+/// Performs matching using the Matching Engine.
+#[pyfunction]
+#[pyo3(signature = (csv_path, treatment, outcome, covariates, k=1, method="euclidean"))]
+fn match_units(
+    csv_path: &str,
+    treatment: &str,
+    outcome: &str,
+    covariates: Vec<String>,
+    k: usize,
+    method: &str,
+) -> PyResult<Vec<f64>> {
+    use polars::prelude::*;
+    use crate::MatchingEngine;
+
+    let df = LazyCsvReader::new(csv_path)
+        .finish()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
+        .collect()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
+
+    let cov_refs: Vec<&str> = covariates.iter().map(|s| s.as_str()).collect();
+    let engine = MatchingEngine::new(df, treatment, outcome, &cov_refs);
+
+    let weights = if method == "psm" {
+        engine.match_psm(k)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Matching failed: {:?}", e)))?
+    } else {
+        let use_mahalanobis = method == "mahalanobis";
+        engine.run_matching(k, use_mahalanobis)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Matching failed: {:?}", e)))?
+    };
+
+    Ok(weights)
+}
+
 /// Python module for oaxaca_blinder
 #[pymodule]
 fn oaxaca_blinder(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decompose_from_csv, m)?)?;
+    m.add_function(wrap_pyfunction!(estimate_akm, m)?)?;
+    m.add_function(wrap_pyfunction!(match_units, m)?)?;
     m.add_class::<PyOaxacaResults>()?;
+    m.add_class::<PyAkmResult>()?;
     Ok(())
+}
+
+#[pyclass]
+struct PyAkmResult {
+    beta: Vec<f64>,
+    worker_effects: HashMap<String, f64>,
+    firm_effects: HashMap<String, f64>,
+    r2: f64,
+}
+
+#[pymethods]
+impl PyAkmResult {
+    #[getter]
+    fn beta(&self) -> Vec<f64> {
+        self.beta.clone()
+    }
+
+    #[getter]
+    fn worker_effects(&self) -> HashMap<String, f64> {
+        self.worker_effects.clone()
+    }
+
+    #[getter]
+    fn firm_effects(&self) -> HashMap<String, f64> {
+        self.firm_effects.clone()
+    }
+
+    #[getter]
+    fn r2(&self) -> f64 {
+        self.r2
+    }
+}
+
+/// Estimates the AKM model from a CSV file.
+#[pyfunction]
+#[pyo3(signature = (csv_path, outcome, worker_col, firm_col, controls=None, tolerance=1e-8, max_iters=1000))]
+fn estimate_akm(
+    csv_path: &str,
+    outcome: &str,
+    worker_col: &str,
+    firm_col: &str,
+    controls: Option<Vec<String>>,
+    tolerance: f64,
+    max_iters: usize,
+) -> PyResult<PyAkmResult> {
+    use polars::prelude::*;
+    use crate::AkmBuilder;
+
+    let df = LazyCsvReader::new(csv_path)
+        .finish()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
+        .collect()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
+
+    let mut builder = AkmBuilder::new(df, outcome, worker_col, firm_col)
+        .tolerance(tolerance)
+        .max_iters(max_iters);
+        
+    if let Some(c) = controls {
+        let refs: Vec<&str> = c.iter().map(|s| s.as_str()).collect();
+        builder = builder.controls(&refs);
+    }
+
+    let result = builder.run()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("AKM estimation failed: {:?}", e)))?;
+
+    // Convert DataFrames to HashMaps for Python
+    let mut worker_effects = HashMap::new();
+    let w_ids = result.worker_effects.column(worker_col)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
+        .cast(&DataType::String)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+    
+    let w_effs = result.worker_effects.column("effect")
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
+        .f64()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+    
+    let w_ids_utf8 = w_ids.str()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+    
+    for (id_opt, eff_opt) in w_ids_utf8.into_iter().zip(w_effs.into_iter()) {
+        if let (Some(id), Some(eff)) = (id_opt, eff_opt) {
+            worker_effects.insert(id.to_string(), eff);
+        }
+    }
+
+    let mut firm_effects = HashMap::new();
+    let f_ids = result.firm_effects.column(firm_col)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
+        .cast(&DataType::String)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+    
+    let f_effs = result.firm_effects.column("effect")
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
+        .f64()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+    
+    let f_ids_utf8 = f_ids.str()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+    
+    for (id_opt, eff_opt) in f_ids_utf8.into_iter().zip(f_effs.into_iter()) {
+        if let (Some(id), Some(eff)) = (id_opt, eff_opt) {
+            firm_effects.insert(id.to_string(), eff);
+        }
+    }
+
+    Ok(PyAkmResult {
+        beta: result.beta.iter().cloned().collect(),
+        worker_effects,
+        firm_effects,
+        r2: result.r2,
+    })
 }

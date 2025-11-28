@@ -31,11 +31,11 @@ struct Args {
     #[arg(long, value_delimiter = ',')]
     categorical: Option<Vec<String>>,
 
-    /// The type of analysis to perform
+    /// The type of analysis to perform [choices: mean, quantile, akm, match]
     #[arg(long, default_value = "mean")]
     analysis_type: String,
 
-    /// Specifies the reference coefficients for the two-fold decomposition (for mean analysis)
+    /// Specifies the reference coefficients for the two-fold decomposition (for mean analysis) [choices: group_a, group_b, pooled, weighted]
     #[arg(long, default_value = "group_b")]
     ref_coeffs: String,
 
@@ -74,6 +74,22 @@ struct Args {
     /// Path to export results as Markdown
     #[arg(long)]
     output_markdown: Option<PathBuf>,
+
+    /// Worker ID column for AKM analysis (Abowd-Kramarz-Margolis model)
+    #[arg(long)]
+    worker_id: Option<String>,
+
+    /// Firm ID column for AKM analysis (Abowd-Kramarz-Margolis model)
+    #[arg(long)]
+    firm_id: Option<String>,
+
+    /// Number of neighbors for matching
+    #[arg(long, default_value_t = 1)]
+    k_neighbors: usize,
+
+    /// Matching method [choices: euclidean, mahalanobis, psm]
+    #[arg(long, default_value = "euclidean")]
+    matching_method: String,
 }
 
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -159,6 +175,60 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         let results = builder.run()?;
 
         results.summary();
+    } else if args.analysis_type == "akm" {
+        use oaxaca_blinder::AkmBuilder;
+        
+        let worker_col = args.worker_id.ok_or("Worker ID is required for AKM analysis")?;
+        let firm_col = args.firm_id.ok_or("Firm ID is required for AKM analysis")?;
+        
+        let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
+        
+        let builder = AkmBuilder::new(df, &args.outcome, &worker_col, &firm_col)
+            .controls(&predictors);
+            
+        let results = builder.run().map_err(|e| format!("AKM estimation failed: {:?}", e))?;
+        
+        println!("AKM Estimation Results");
+        println!("Method: Alternating Projections (MAP) on Largest Connected Set");
+        println!("----------------------");
+        println!("R-squared: {:.4}", results.r2);
+        println!("Beta Coefficients:");
+        for (i, name) in args.predictors.iter().enumerate() {
+            if i < results.beta.len() {
+                println!("  {}: {:.4}", name, results.beta[i]);
+            }
+        }
+        
+        // Export effects if requested?
+        // For now just summary.
+        // Export effects if requested?
+        // For now just summary.
+    } else if args.analysis_type == "match" {
+        use oaxaca_blinder::MatchingEngine;
+        
+        let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
+        let engine = MatchingEngine::new(df, &args.group, &args.outcome, &predictors);
+        
+        let weights = if args.matching_method == "psm" {
+            engine.match_psm(args.k_neighbors)
+                .map_err(|e| format!("Matching failed: {:?}", e))?
+        } else {
+            let use_mahalanobis = args.matching_method == "mahalanobis";
+            engine.run_matching(args.k_neighbors, use_mahalanobis)
+                .map_err(|e| format!("Matching failed: {:?}", e))?
+        };
+        
+        // Output weights
+        // If JSON output is requested, save weights
+        if let Some(path) = args.output_json {
+            let json = serde_json::to_string(&weights)?;
+            std::fs::write(path, json)?;
+        } else {
+            println!("Matching completed. Generated {} weights.", weights.len());
+            println!("First 10 weights: {:?}", weights.iter().take(10).collect::<Vec<_>>());
+        }
+    } else {
+        return Err(format!("Unknown analysis type: {}", args.analysis_type).into());
     }
 
     Ok(())
