@@ -7,7 +7,8 @@ A high-performance Rust library for performing Oaxaca-Blinder decomposition, des
 
 Beyond standard decomposition, it supports **Quantile Decomposition (RIF & Machado-Mata)**, **AKM (Abowd-Kramarz-Margolis) Models**, **Propensity Score Matching**, **DFL Reweighting**, and **Budget Optimization** for policy simulation.
 
-## 🚀 Feature Support
+<details>
+<summary><strong>🚀 Feature Support</strong></summary>
 
 | Feature | Support |
 | :--- | :---: |
@@ -24,9 +25,12 @@ Beyond standard decomposition, it supports **Quantile Decomposition (RIF & Macha
 | **AKM (Worker-Firm Fixed Effects)** | ✅ |
 | **Matching (Euclidean, Mahalanobis, PSM)** | ✅ |
 
+</details>
+
 ---
 
-## 🏆 Why Use This Library?
+<details>
+<summary><strong>🏆 Why Use This Library?</strong></summary>
 
 Most economists rely on the `oaxaca` R package or `statsmodels` in Python. While excellent, they have limitations that this library addresses:
 
@@ -37,9 +41,12 @@ Most economists rely on the `oaxaca` R package or `statsmodels` in Python. While
 5.  **🐍 Python & CLI Support**: You don't need to know Rust. Use the high-performance engine directly from Python or the command line.
 6.  **⚡ Parallelized Inference**: Bootstrapping standard errors for Oaxaca decompositions is computationally intensive. This library uses **Rayon** to parallelize this across all CPU cores, reducing wait times from minutes to seconds.
 
+</details>
+
 ---
 
-## 🖥️ Command Line Interface (CLI)
+<details>
+<summary><strong>🖥️ Command Line Interface (CLI)</strong></summary>
 
 Don't want to write Rust code? You can use the `oaxaca-cli` tool directly from your terminal to analyze CSV files.
 
@@ -85,9 +92,12 @@ oaxaca-cli --data wage.csv ... --output-json results.json --output-markdown repo
 
 Supports both `--analysis-type mean` (default) and `--analysis-type quantile`.
 
+</details>
+
 ---
 
-## ⚡ Quick Start
+<details>
+<summary><strong>⚡ Quick Start</strong></summary>
 
 Add to `Cargo.toml`:
 
@@ -139,9 +149,12 @@ print(f"Total Gap: {results.total_gap}")
 print(f"Unexplained: {results.unexplained}")
 ```
 
+</details>
+
 ---
 
-## 💰 Policy Simulation: Budget Optimization
+<details>
+<summary><strong>💰 Policy Simulation: Budget Optimization</strong></summary>
 
 **"The Cheapest Fix"** 
 
@@ -158,9 +171,12 @@ for adj in adjustments {
 }
 ```
 
+</details>
+
 ---
 
-## 📊 Quantile Decomposition Strategies
+<details>
+<summary><strong>📊 Quantile Decomposition Strategies</strong></summary>
 
 The library supports two robust methods for decomposing the wage gap across the distribution:
 
@@ -188,9 +204,12 @@ oaxaca-cli --data wage.csv --outcome wage --group gender --reference F \
 
 *Note: Python bindings for quantile decomposition are coming soon.*
 
+</details>
+
 ---
 
-## 📈 Visualizing DFL Reweighting
+<details>
+<summary><strong>📈 Visualizing DFL Reweighting</strong></summary>
 
 **DiNardo-Fortin-Lemieux (DFL)** reweighting (Rust Only) is a non-parametric alternative that allows you to visualize what the wage distribution of Group B would look like if they had the characteristics of Group A.
 
@@ -209,9 +228,12 @@ let dfl = run_dfl(&df, "wage", "gender", "F", &["education", "experience"])?;
 
 *Tip: Plot `density_b` vs `density_b_counterfactual` to visualize the "explained" gap.*
 
+</details>
+
 ---
 
-## ⏱️ Benchmarks
+<details>
+<summary><strong>⏱️ Benchmarks</strong></summary>
 
 Designed for performance, utilizing Rust's speed and parallelization (Rayon) for bootstrapping.
 
@@ -226,9 +248,12 @@ Designed for performance, utilizing Rust's speed and parallelization (Rayon) for
 
 *Rust's raw decomposition is significantly faster than statsmodels, and the bootstrap performance is orders of magnitude faster than R.*
 
+</details>
+
 
 ---
-## Matching Engine
+<details>
+<summary><strong>Matching Engine</strong></summary>
 
 The library includes a high-performance Matching Engine for causal inference, supporting Euclidean, Mahalanobis, and Propensity Score Matching (PSM).
 
@@ -268,6 +293,8 @@ oaxaca-cli --data wage.csv --outcome wage --group treatment --reference 0 \
   --predictors education,experience \
   --analysis-type match --matching-method mahalanobis --k-neighbors 1
 ```
+
+</details>
 
 
 

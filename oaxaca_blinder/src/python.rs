@@ -50,18 +50,8 @@ impl PyOaxacaResults {
 }
 
 /// Performs Oaxaca-Blinder decomposition from a CSV file.
-///
-/// # Arguments
-///
-/// * `csv_path` - Path to the CSV file
-/// * `outcome` - Name of the outcome variable
-/// * `predictors` - List of predictor variable names
-/// * `categorical_predictors` - List of categorical predictor names
-/// * `group` - Name of the group variable
-/// * `reference_group` - Value representing the reference group
-/// * `bootstrap_reps` - Number of bootstrap replications (default: 100)
 #[pyfunction]
-#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, bootstrap_reps=100))]
+#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, bootstrap_reps=100, weights=None, selection_outcome=None, selection_predictors=None))]
 fn decompose_from_csv(
     csv_path: &str,
     outcome: &str,
@@ -70,6 +60,9 @@ fn decompose_from_csv(
     group: &str,
     reference_group: &str,
     bootstrap_reps: usize,
+    weights: Option<String>,
+    selection_outcome: Option<String>,
+    selection_predictors: Option<Vec<String>>,
 ) -> PyResult<PyOaxacaResults> {
     use polars::prelude::*;
     use crate::OaxacaBuilder;
@@ -87,6 +80,15 @@ fn decompose_from_csv(
     builder.predictors(&pred_refs)
            .categorical_predictors(&cat_refs)
            .bootstrap_reps(bootstrap_reps);
+
+    if let Some(w) = &weights {
+        builder.weights(w);
+    }
+
+    if let (Some(sel_out), Some(sel_preds)) = (selection_outcome, selection_predictors) {
+        let sel_preds_refs: Vec<&str> = sel_preds.iter().map(|s| s.as_str()).collect();
+        builder.heckman_selection(&sel_out, &sel_preds_refs);
+    }
 
     let results = builder.run()
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Decomposition failed: {:?}", e)))?;
@@ -118,6 +120,151 @@ fn decompose_from_csv(
         detailed_explained,
         detailed_unexplained,
     })
+}
+
+/// Performs Quantile Decomposition (RIF-Regression) from a CSV file.
+#[pyfunction]
+#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, quantile, bootstrap_reps=100, weights=None))]
+fn decompose_quantile_from_csv(
+    csv_path: &str,
+    outcome: &str,
+    predictors: Vec<String>,
+    categorical_predictors: Vec<String>,
+    group: &str,
+    reference_group: &str,
+    quantile: f64,
+    bootstrap_reps: usize,
+    weights: Option<String>,
+) -> PyResult<PyOaxacaResults> {
+    use polars::prelude::*;
+    use crate::OaxacaBuilder;
+
+    let df = LazyCsvReader::new(csv_path)
+        .finish()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
+        .collect()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
+
+    let pred_refs: Vec<&str> = predictors.iter().map(|s| s.as_str()).collect();
+    let cat_refs: Vec<&str> = categorical_predictors.iter().map(|s| s.as_str()).collect();
+
+    let mut builder = OaxacaBuilder::new(df, outcome, group, reference_group);
+    builder.predictors(&pred_refs)
+           .categorical_predictors(&cat_refs)
+           .bootstrap_reps(bootstrap_reps);
+
+    if let Some(w) = &weights {
+        builder.weights(w);
+    }
+
+    let results = builder.decompose_quantile(quantile)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Quantile decomposition failed: {:?}", e)))?;
+
+    let explained = results.two_fold().aggregate().iter()
+        .find(|c| c.name() == "explained")
+        .map(|c| *c.estimate())
+        .unwrap_or(0.0);
+
+    let unexplained = results.two_fold().aggregate().iter()
+        .find(|c| c.name() == "unexplained")
+        .map(|c| *c.estimate())
+        .unwrap_or(0.0);
+
+    let mut detailed_explained = HashMap::new();
+    for comp in results.two_fold().detailed_explained() {
+        detailed_explained.insert(comp.name().to_string(), *comp.estimate());
+    }
+
+    let mut detailed_unexplained = HashMap::new();
+    for comp in results.two_fold().detailed_unexplained() {
+        detailed_unexplained.insert(comp.name().to_string(), *comp.estimate());
+    }
+
+    Ok(PyOaxacaResults {
+        total_gap: *results.total_gap(),
+        explained,
+        unexplained,
+        detailed_explained,
+        detailed_unexplained,
+    })
+}
+
+/// Optimizes budget to reduce pay gap.
+#[pyfunction]
+#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, budget, target_gap))]
+fn optimize_budget_from_csv(
+    csv_path: &str,
+    outcome: &str,
+    predictors: Vec<String>,
+    categorical_predictors: Vec<String>,
+    group: &str,
+    reference_group: &str,
+    budget: f64,
+    target_gap: f64,
+) -> PyResult<Vec<HashMap<String, f64>>> {
+    use polars::prelude::*;
+    use crate::OaxacaBuilder;
+
+    let df = LazyCsvReader::new(csv_path)
+        .finish()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
+        .collect()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
+
+    let pred_refs: Vec<&str> = predictors.iter().map(|s| s.as_str()).collect();
+    let cat_refs: Vec<&str> = categorical_predictors.iter().map(|s| s.as_str()).collect();
+
+    let mut builder = OaxacaBuilder::new(df, outcome, group, reference_group);
+    builder.predictors(&pred_refs)
+           .categorical_predictors(&cat_refs)
+           .bootstrap_reps(0); // No bootstrap needed for budget optimization
+
+    let results = builder.run()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Decomposition failed: {:?}", e)))?;
+
+    let adjustments = results.optimize_budget(budget, target_gap);
+
+    let mut py_adjustments = Vec::new();
+    for adj in adjustments {
+        let mut map = HashMap::new();
+        map.insert("index".to_string(), adj.index as f64);
+        map.insert("original_residual".to_string(), adj.original_residual);
+        map.insert("adjustment".to_string(), adj.adjustment);
+        py_adjustments.push(map);
+    }
+
+    Ok(py_adjustments)
+}
+
+/// Performs DFL Reweighting.
+#[pyfunction]
+#[pyo3(signature = (csv_path, outcome, group, reference_group, predictors))]
+fn run_dfl_from_csv(
+    csv_path: &str,
+    outcome: &str,
+    group: &str,
+    reference_group: &str,
+    predictors: Vec<String>,
+) -> PyResult<HashMap<String, Vec<f64>>> {
+    use polars::prelude::*;
+    use crate::run_dfl;
+
+    let df = LazyCsvReader::new(csv_path)
+        .finish()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
+        .collect()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
+
+    let result = run_dfl(&df, outcome, group, reference_group, &predictors)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("DFL failed: {:?}", e)))?;
+
+    let mut map = HashMap::new();
+    map.insert("grid".to_string(), result.grid);
+    map.insert("density_a".to_string(), result.density_a);
+    map.insert("density_b".to_string(), result.density_b);
+    map.insert("density_b_counterfactual".to_string(), result.density_b_counterfactual);
+
+    Ok(map)
 }
 
 /// Performs matching using the Matching Engine.
@@ -159,6 +306,9 @@ fn match_units(
 #[pymodule]
 fn oaxaca_blinder(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decompose_from_csv, m)?)?;
+    m.add_function(wrap_pyfunction!(decompose_quantile_from_csv, m)?)?;
+    m.add_function(wrap_pyfunction!(optimize_budget_from_csv, m)?)?;
+    m.add_function(wrap_pyfunction!(run_dfl_from_csv, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_akm, m)?)?;
     m.add_function(wrap_pyfunction!(match_units, m)?)?;
     m.add_class::<PyOaxacaResults>()?;
