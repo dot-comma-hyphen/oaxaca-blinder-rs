@@ -280,6 +280,41 @@ impl OaxacaBuilder {
         self
     }
 
+    /// Exposes the internal data matrices for advanced usage (e.g., optimization).
+    /// This method prepares the data (creating dummies, etc.) and returns the matrices for Group A and Group B.
+    /// Returns: (X_A, y_A, X_B, y_B, predictor_names)
+    pub fn get_data_matrices(&self) -> Result<(DMatrix<f64>, DVector<f64>, DMatrix<f64>, DVector<f64>, Vec<String>), OaxacaError> {
+        let mut df = self.dataframe.clone();
+        let mut all_dummy_names = Vec::new();
+        // let mut category_counts = std::collections::HashMap::new();
+
+        if !self.categorical_predictors.is_empty() {
+            for cat_pred in &self.categorical_predictors {
+                let series = df.column(cat_pred)?;
+                let (dummies, _, _) = self.create_dummies_manual(series.as_materialized_series())?;
+                // category_counts.insert(cat_pred.clone(), m);
+                for s in dummies.get_columns() {
+                    all_dummy_names.push(s.name().to_string());
+                }
+                df = df.hstack(dummies.get_columns())?;
+            }
+        }
+
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
+        if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups for comparison".to_string())); }
+
+        let group_b_name = self.reference_group.as_str();
+        let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
+        let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
+
+        let df_a = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?;
+        let df_b = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?;
+
+        let (x_a, y_a, _, predictor_names) = self.prepare_data(&df_a, &all_dummy_names, &[])?;
+        let (x_b, y_b, _, _) = self.prepare_data(&df_b, &all_dummy_names, &[])?;
+
+        Ok((x_a, y_a, x_b, y_b, predictor_names))
+    }
 
     fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String], extra_predictors: &[String]) -> Result<(DMatrix<f64>, DVector<f64>, Option<DVector<f64>>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
