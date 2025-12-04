@@ -93,9 +93,10 @@ struct Args {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let df = CsvReader::from_path(&args.data)?
-        .has_header(true)
-        .finish()?;
+    let df = LazyCsvReader::new(&args.data)
+        .with_has_header(true)
+        .finish()?
+        .collect()?;
 
     if args.analysis_type == "mean" {
         let reference_coeffs = match args.ref_coeffs.as_str() {

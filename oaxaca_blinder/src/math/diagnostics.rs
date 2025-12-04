@@ -49,7 +49,7 @@ pub fn calculate_vif(
 
         let x_df = df.select(&other_predictors)?;
         let mut x_df_with_intercept = x_df.clone();
-        let intercept = Series::new("intercept", vec![1.0; x_df.height()]);
+        let intercept = Series::new("intercept".into(), vec![1.0; x_df.height()]);
         x_df_with_intercept.with_column(intercept)?;
         
         let x_matrix_ndarray = x_df_with_intercept.to_ndarray::<Float64Type>(IndexOrder::C)?;

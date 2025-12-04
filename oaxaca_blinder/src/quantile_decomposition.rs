@@ -92,14 +92,14 @@ impl QuantileDecompositionBuilder {
         final_predictors.extend_from_slice(all_dummy_names);
 
         let mut x_df = df.select(&self.predictors)?;
-        let intercept_series = Series::new("intercept", vec![1.0; df.height()]);
+        let intercept_series = Series::new("intercept".into(), vec![1.0; df.height()]);
         x_df.with_column(intercept_series)?;
 
         for name in all_dummy_names {
-            if df.get_column_names().contains(&name.as_str()) {
+            if df.get_column_names().iter().any(|s| s.as_str() == name.as_str()) {
                 x_df.with_column(df.column(name)?.clone())?;
             } else {
-                let zero_series = Series::new(name, vec![0.0; df.height()]);
+                let zero_series = Series::new(name.into(), vec![0.0; df.height()]);
                 x_df.with_column(zero_series)?;
             }
         }
@@ -111,7 +111,7 @@ impl QuantileDecompositionBuilder {
     }
 
     fn create_dummies_manual(&self, series: &Series) -> Result<DataFrame, OaxacaError> {
-        let unique_vals = series.unique()?.sort(false, false);
+        let unique_vals = series.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         let mut dummy_vars: Vec<Series> = Vec::new();
 
         for val in unique_vals.str()?.into_iter().flatten().skip(1) {
@@ -119,10 +119,11 @@ impl QuantileDecompositionBuilder {
             let ca = series.equal(val)?;
             let mut dummy_series = ca.into_series();
             dummy_series = dummy_series.cast(&DataType::Float64)?;
-            dummy_series.rename(&dummy_name);
+            dummy_series.rename(dummy_name.as_str().into());
             dummy_vars.push(dummy_series);
         }
-        Ok(DataFrame::new(dummy_vars).map_err(OaxacaError::from)?)
+        let cols: Vec<Column> = dummy_vars.into_iter().map(Column::Series).collect();
+        Ok(DataFrame::new(cols).map_err(OaxacaError::from)?)
     }
 
     /// (Private) Calculates the empirical quantile of a slice of numbers.
@@ -134,14 +135,14 @@ impl QuantileDecompositionBuilder {
     }
 
     fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<SinglePassResult, OaxacaError> {
-        let unique_groups = df.column(&self.group)?.unique()?.sort(false, false);
+        let unique_groups = df.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups".to_string())); }
         let group_b_name = self.reference_group.as_str();
         let group_a_name = unique_groups.str()?.get(0).unwrap_or(group_b_name);
         let group_a_name = if group_a_name == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name };
 
-        let df_a = df.filter(&df.column(&self.group)?.equal(group_a_name)?)?;
-        let df_b = df.filter(&df.column(&self.group)?.equal(group_b_name)?)?;
+        let df_a = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?;
+        let df_b = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?;
         if df_a.height() < 2 || df_b.height() < 2 { return Err(OaxacaError::InvalidGroupVariable("One group has insufficient data".to_string())); }
 
         let (x_a, y_a, _) = self.prepare_data(&df_a, all_dummy_names)?;
@@ -211,7 +212,7 @@ impl QuantileDecompositionBuilder {
         if !self.categorical_predictors.is_empty() {
             for cat_pred in &self.categorical_predictors {
                 let series = df.column(cat_pred)?;
-                let dummies = self.create_dummies_manual(series)?;
+                let dummies = self.create_dummies_manual(series.as_materialized_series())?;
                 for s in dummies.get_columns() {
                     all_dummy_names.push(s.name().to_string());
                 }
@@ -219,7 +220,7 @@ impl QuantileDecompositionBuilder {
             }
         }
 
-        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         let group_b_name = self.reference_group.as_str();
         let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
         let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
@@ -233,8 +234,8 @@ impl QuantileDecompositionBuilder {
             .into_par_iter()
             .filter_map(|_| {
                 // Stratified sampling: Sample from Group A and Group B separately
-                let df_a = df.filter(&df.column(&self.group).ok()?.equal(group_a_name_owned.as_str()).ok()?).ok()?;
-                let df_b = df.filter(&df.column(&self.group).ok()?.equal(group_b_name_owned.as_str()).ok()?).ok()?;
+                let df_a = df.filter(&df.column(&self.group).ok()?.as_materialized_series().equal(group_a_name_owned.as_str()).ok()?).ok()?;
+                let df_b = df.filter(&df.column(&self.group).ok()?.as_materialized_series().equal(group_b_name_owned.as_str()).ok()?).ok()?;
 
                 let sample_a = df_a.sample_n_literal(df_a.height(), true, false, None).ok()?;
                 let sample_b = df_b.sample_n_literal(df_b.height(), true, false, None).ok()?;
@@ -267,8 +268,8 @@ impl QuantileDecompositionBuilder {
 
         Ok(QuantileDecompositionResults {
             results_by_quantile: final_results,
-            n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
-            n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
+            n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?.height(),
+            n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?.height(),
         })
     }
 }

@@ -30,8 +30,8 @@ impl MatchingEngine {
         let df = &self.dataframe;
         
         // Filter treated and control
-        let treated_mask = df.column(&self.treatment_col)?.equal(1)?;
-        let control_mask = df.column(&self.treatment_col)?.equal(0)?;
+        let treated_mask = df.column(&self.treatment_col)?.as_materialized_series().equal(1)?;
+        let control_mask = df.column(&self.treatment_col)?.as_materialized_series().equal(0)?;
         
         let treated_df = df.filter(&treated_mask)?;
         let control_df = df.filter(&control_mask)?;
@@ -146,11 +146,11 @@ impl MatchingEngine {
         // 1. Add index column to track original rows
         let mut df = self.dataframe.clone();
         let indices: Vec<u32> = (0..df.height() as u32).collect();
-        let df = df.with_column(Series::new("orig_index", indices))?.clone();
+        let df = df.with_column(Series::new("orig_index".into(), indices))?.clone();
         
         // 2. Split
-        let treated_mask = df.column(&self.treatment_col)?.equal(1)?;
-        let control_mask = df.column(&self.treatment_col)?.equal(0)?;
+        let treated_mask = df.column(&self.treatment_col)?.as_materialized_series().equal(1)?;
+        let control_mask = df.column(&self.treatment_col)?.as_materialized_series().equal(0)?;
         
         let treated_df = df.filter(&treated_mask)?;
         let control_df = df.filter(&control_mask)?;
@@ -274,7 +274,7 @@ impl MatchingEngine {
         // 3. Match on Scores (1D)
         // We can reuse the run_matching logic but with "score" as the only covariate.
         let mut df_with_score = df.clone();
-        let score_series = Series::new("propensity_score", scores.as_slice());
+        let score_series = Series::new("propensity_score".into(), scores.as_slice());
         df_with_score.with_column(score_series)?;
         
         let engine = MatchingEngine::new(df_with_score, &self.treatment_col, &self.outcome_col, &["propensity_score"]);

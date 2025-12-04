@@ -40,7 +40,7 @@ pub fn run_dfl(
 ) -> Result<DflResult, OaxacaError> {
     // 1. Prepare Data for Logit
     // Target: 1 if Group A, 0 if Group B
-    let unique_groups = df.column(group)?.unique()?.sort(false, false);
+    let unique_groups = df.column(group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
     let group_b_name = reference_group;
     let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(reference_group);
     let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
@@ -59,8 +59,8 @@ pub fn run_dfl(
     // TODO: Support categorical predictors in DFL.
     
     let mut x_cols = Vec::new();
-    let intercept = Series::new("intercept", vec![1.0; df.height()]);
-    x_cols.push(intercept);
+    let intercept = Series::new("intercept".into(), vec![1.0; df.height()]);
+    x_cols.push(Column::Series(intercept));
     
     for pred in predictors {
         let col = df.column(pred)?.cast(&DataType::Float64)?;
@@ -81,8 +81,8 @@ pub fn run_dfl(
     // psi(x) = (P(A|X) / (1 - P(A|X))) * (P(B) / P(A))
     
     let n = df.height() as f64;
-    let n_a = df.filter(&df.column(group)?.equal(group_a_name)?)?.height() as f64;
-    let n_b = df.filter(&df.column(group)?.equal(group_b_name)?)?.height() as f64;
+    let n_a = df.filter(&df.column(group)?.as_materialized_series().equal(group_a_name)?)?.height() as f64;
+    let n_b = df.filter(&df.column(group)?.as_materialized_series().equal(group_b_name)?)?.height() as f64;
     
     let p_a_marginal = n_a / n;
     let p_b_marginal = n_b / n;

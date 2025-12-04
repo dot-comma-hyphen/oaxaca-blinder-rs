@@ -65,5 +65,5 @@ pub fn calculate_rif(series: &Series, quantile: f64) -> Result<Series, PolarsErr
         q_tau + (quantile - indicator) / density
     }).collect();
 
-    Ok(Series::new(series.name(), rif_values))
+    Ok(Series::new(series.name().clone(), rif_values))
 }

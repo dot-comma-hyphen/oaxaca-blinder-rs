@@ -294,14 +294,14 @@ impl OaxacaBuilder {
         final_predictors.extend_from_slice(all_dummy_names);
 
         let mut x_df = df.select(&current_predictors)?;
-        let intercept_series = Series::new("intercept", vec![1.0; df.height()]);
+        let intercept_series = Series::new("intercept".into(), vec![1.0; df.height()]);
         x_df.with_column(intercept_series)?;
 
         for name in all_dummy_names {
-            if df.get_column_names().contains(&name.as_str()) {
+            if df.get_column_names().iter().any(|s| s.as_str() == name.as_str()) {
                 x_df.with_column(df.column(name)?.clone())?;
             } else {
-                let zero_series = Series::new(name, vec![0.0; df.height()]);
+                let zero_series = Series::new(name.into(), vec![0.0; df.height()]);
                 x_df.with_column(zero_series)?;
             }
         }
@@ -323,7 +323,7 @@ impl OaxacaBuilder {
     }
 
     fn create_dummies_manual(&self, series: &Series) -> Result<(DataFrame, usize, String), OaxacaError> {
-        let unique_vals = series.unique()?.sort(false, false);
+        let unique_vals = series.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         let m = unique_vals.len();
         let mut dummy_vars: Vec<Series> = Vec::new();
 
@@ -339,23 +339,23 @@ impl OaxacaBuilder {
             let ca = series.equal(val)?;
             let mut dummy_series = ca.into_series();
             dummy_series = dummy_series.cast(&DataType::Float64)?;
-            dummy_series.rename(&dummy_name);
+            dummy_series.rename(dummy_name.as_str().into());
             dummy_vars.push(dummy_series);
         }
 
-        Ok((DataFrame::new(dummy_vars).map_err(OaxacaError::from)?, m, reference_name))
+        Ok((DataFrame::new(dummy_vars.into_iter().map(Column::Series).collect()).map_err(OaxacaError::from)?, m, reference_name))
     }
 
     fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String], category_counts: &std::collections::HashMap<String, usize>, base_categories: &std::collections::HashMap<String, String>) -> Result<SinglePassResult, OaxacaError> {
-        let unique_groups = df.column(&self.group)?.unique()?.sort(false, false);
+        let unique_groups = df.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups for comparison".to_string())); }
 
         let group_b_name = self.reference_group.as_str();
         let group_a_name = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
         let group_a_name = if group_a_name == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name };
 
-        let df_a = df.filter(&df.column(&self.group)?.equal(group_a_name)?)?;
-        let df_b = df.filter(&df.column(&self.group)?.equal(group_b_name)?)?;
+        let df_a = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?;
+        let df_b = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?;
         if df_a.height() == 0 || df_b.height() == 0 { return Err(OaxacaError::InvalidGroupVariable("One group has no data".to_string())); }
 
         let (x_a, y_a, w_a, predictor_names) = self.prepare_data(&df_a, all_dummy_names, &[])?;
@@ -376,7 +376,7 @@ impl OaxacaBuilder {
                 
                 // Selection predictors
                 let mut x_sel_df = df_group.select(&self.selection_predictors)?;
-                let intercept = Series::new("intercept", vec![1.0; df_group.height()]);
+                let intercept = Series::new("intercept".into(), vec![1.0; df_group.height()]);
                 x_sel_df.with_column(intercept)?;
                 let mut cols = vec!["intercept".to_string()];
                 cols.extend(self.selection_predictors.clone());
@@ -387,11 +387,11 @@ impl OaxacaBuilder {
                 let x_sel = DMatrix::from_row_slice(x_sel_df.height(), x_sel_df.width(), &x_sel_vec);
                 
                 // 2. Subset X Selection (where y_sel = 1)
-                let mask = df_group.column(sel_outcome)?.equal(1)?;
+                let mask = df_group.column(sel_outcome)?.as_materialized_series().equal(1)?;
                 let df_subset = df_group.filter(&mask)?;
                 
                 let mut x_sel_sub_df = df_subset.select(&self.selection_predictors)?;
-                x_sel_sub_df.with_column(Series::new("intercept", vec![1.0; df_subset.height()]))?;
+                x_sel_sub_df.with_column(Series::new("intercept".into(), vec![1.0; df_subset.height()]))?;
                 let x_sel_sub_df = x_sel_sub_df.select(&cols)?;
                 
                 let x_sel_sub_mat = x_sel_sub_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
@@ -405,7 +405,7 @@ impl OaxacaBuilder {
             let (x_sel_b, y_sel_b, x_sel_sub_b) = prepare_selection(&df_b)?;
             
             let filter_outcome_data = |x: &DMatrix<f64>, y: &DVector<f64>, df: &DataFrame| -> Result<(DMatrix<f64>, DVector<f64>), OaxacaError> {
-                let mask = df.column(sel_outcome)?.equal(1)?;
+                let mask = df.column(sel_outcome)?.as_materialized_series().equal(1)?;
                 let mut rows = Vec::new();
                 let mut y_vals = Vec::new();
                 for i in 0..df.height() {
@@ -501,7 +501,7 @@ impl OaxacaBuilder {
             }
             ReferenceCoefficients::Pooled | ReferenceCoefficients::Neumark => {
                 let mut df_pooled = df_a.vstack(&df_b)?;
-                let group_indicator = Series::new("group_indicator", df_pooled.column(&self.group)?.equal(group_a_name)?.into_series().cast(&DataType::Float64)?);
+                let group_indicator = Series::new("group_indicator".into(), df_pooled.column(&self.group)?.as_materialized_series().equal(group_a_name)?.into_series().cast(&DataType::Float64)?);
                 df_pooled.with_column(group_indicator)?;
 
                 let (x_pooled, y_pooled, w_pooled, pooled_predictor_names) = self.prepare_data(&df_pooled, all_dummy_names, &["group_indicator".to_string()])?;
@@ -615,19 +615,19 @@ impl OaxacaBuilder {
     /// * `quantile` - The target quantile (e.g., 0.9 for the 90th percentile).
     pub fn decompose_quantile(&self, quantile: f64) -> Result<OaxacaResults, OaxacaError> {
         // 1. Split data into groups
-        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups".to_string())); }
         
         let group_b_name = self.reference_group.as_str();
         let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
         let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
 
-        let df_a = self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?;
-        let df_b = self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?;
+        let df_a = self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?;
+        let df_b = self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?;
 
         // 2. Calculate RIF for each group
-        let rif_a = calculate_rif(df_a.column(&self.outcome)?, quantile).map_err(OaxacaError::PolarsError)?;
-        let rif_b = calculate_rif(df_b.column(&self.outcome)?, quantile).map_err(OaxacaError::PolarsError)?;
+        let rif_a = calculate_rif(df_a.column(&self.outcome)?.as_materialized_series(), quantile).map_err(OaxacaError::PolarsError)?;
+        let rif_b = calculate_rif(df_b.column(&self.outcome)?.as_materialized_series(), quantile).map_err(OaxacaError::PolarsError)?;
 
         // 3. Replace outcome with RIF
         let mut df_a_mod = df_a.clone();
@@ -663,7 +663,7 @@ impl OaxacaBuilder {
         if !self.categorical_predictors.is_empty() {
             for cat_pred in &self.categorical_predictors {
                 let series = df.column(cat_pred)?;
-                let (dummies, m, base_name) = self.create_dummies_manual(series)?;
+                let (dummies, m, base_name) = self.create_dummies_manual(series.as_materialized_series())?;
                 category_counts.insert(cat_pred.clone(), m);
                 base_categories.insert(cat_pred.clone(), base_name);
                 for s in dummies.get_columns() {
@@ -674,7 +674,7 @@ impl OaxacaBuilder {
             }
 
 
-        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(false, false);
+        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
         let group_b_name = self.reference_group.as_str();
         let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
         let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
@@ -690,8 +690,8 @@ impl OaxacaBuilder {
             .into_par_iter()
             .filter_map(|_| {
                 // Stratified sampling: Sample from Group A and Group B separately
-                let df_a = df.filter(&df.column(&self.group).ok()?.equal(group_a_name_owned.as_str()).ok()?).ok()?;
-                let df_b = df.filter(&df.column(&self.group).ok()?.equal(group_b_name_owned.as_str()).ok()?).ok()?;
+                let df_a = df.filter(&df.column(&self.group).ok()?.as_materialized_series().equal(group_a_name_owned.as_str()).ok()?).ok()?;
+                let df_b = df.filter(&df.column(&self.group).ok()?.as_materialized_series().equal(group_b_name_owned.as_str()).ok()?).ok()?;
 
                 let sample_a = df_a.sample_n_literal(df_a.height(), true, false, None).ok()?;
                 let sample_b = df_b.sample_n_literal(df_b.height(), true, false, None).ok()?;
@@ -746,8 +746,8 @@ impl OaxacaBuilder {
                 detailed_unexplained,
             },
             three_fold: DecompositionDetail { aggregate: three_fold_agg, detailed: Vec::new() },
-            n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_a_name)?)?.height(),
-            n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.equal(group_b_name)?)?.height(),
+            n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?.height(),
+            n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?.height(),
             residuals: point_estimates.residuals_b.iter().copied().collect(),
             xa_mean: point_estimates.xa_mean,
             xb_mean: point_estimates.xb_mean,

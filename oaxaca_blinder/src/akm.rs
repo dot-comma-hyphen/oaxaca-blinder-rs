@@ -131,8 +131,8 @@ fn find_largest_connected_set(df: &DataFrame, worker_col: &str, firm_col: &str) 
     let workers = df.column(worker_col)?.cast(&DataType::String)?;
     let firms = df.column(firm_col)?.cast(&DataType::String)?;
     
-    let unique_workers = workers.unique()?.sort(false, false);
-    let unique_firms = firms.unique()?.sort(false, false);
+    let unique_workers = workers.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
+    let unique_firms = firms.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
     
     let n_workers = unique_workers.len();
     let n_firms = unique_firms.len();
@@ -209,8 +209,8 @@ fn solve_akm(
     let workers = df.column(worker_col)?.cast(&DataType::String)?;
     let firms = df.column(firm_col)?.cast(&DataType::String)?;
     
-    let unique_workers = workers.unique()?.sort(false, false);
-    let unique_firms = firms.unique()?.sort(false, false);
+    let unique_workers = workers.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
+    let unique_firms = firms.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
     
     let n_workers = unique_workers.len();
     let n_firms = unique_firms.len();
