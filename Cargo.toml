@@ -1,5 +1,5 @@
 [workspace]
 resolver = "2"
 members = [
-    "oaxaca_blinder",
+    "oaxaca_blinder", "optimization_engine",
 ]
