@@ -5,6 +5,9 @@ use std::fmt::Debug;
 pub trait DistanceMetric: Send + Sync + Debug {
     /// Calculates the distance between two vectors.
     fn distance(&self, a: &[f64], b: &[f64]) -> f64;
+
+    /// Returns true if the metric is Mahalanobis distance.
+    fn is_mahalanobis(&self) -> bool { false }
 }
 
 /// Euclidean distance metric.
@@ -77,12 +80,13 @@ impl DistanceMetric for MahalanobisDistance {
             dist_sq.sqrt()
         }
     }
+
+    fn is_mahalanobis(&self) -> bool { true }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::RowDVector;
 
     #[test]
     fn test_euclidean_distance() {
@@ -96,12 +100,6 @@ mod tests {
     #[test]
     fn test_mahalanobis_distance() {
         // Simple case: uncorrelated variables with unit variance (should be same as Euclidean)
-        let data = DMatrix::from_row_slice(3, 2, &[
-            1.0, 0.0,
-            0.0, 1.0,
-            -1.0, -1.0
-        ]);
-        
         // Covariance of this specific matrix might not be exactly identity, let's construct one manually
         // Identity inverse covariance
         let inv_cov = DMatrix::identity(2, 2);
