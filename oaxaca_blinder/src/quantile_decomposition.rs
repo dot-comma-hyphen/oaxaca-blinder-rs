@@ -259,9 +259,9 @@ impl QuantileDecompositionBuilder {
             let (coeff_std_err, coeff_p_val, (coeff_ci_low, coeff_ci_high)) = bootstrap_stats(&coeff_dist, point.coefficients);
 
             let detail = QuantileDecompositionDetail {
-                total_gap: ComponentResult { name: "Total Gap".to_string(), estimate: point.gap, std_err: gap_std_err, p_value: gap_p_val, ci_lower: gap_ci_low, ci_upper: gap_ci_high },
-                characteristics_effect: ComponentResult { name: "Characteristics".to_string(), estimate: point.characteristics, std_err: char_std_err, p_value: char_p_val, ci_lower: char_ci_low, ci_upper: char_ci_high },
-                coefficients_effect: ComponentResult { name: "Coefficients".to_string(), estimate: point.coefficients, std_err: coeff_std_err, p_value: coeff_p_val, ci_lower: coeff_ci_low, ci_upper: coeff_ci_high },
+                total_gap: ComponentResult { name: "Total Gap".to_string(), estimate: point.gap, std_err: gap_std_err, t_stat: if gap_std_err.abs() > 1e-9 { point.gap / gap_std_err } else { 0.0 }, p_value: gap_p_val, ci_lower: gap_ci_low, ci_upper: gap_ci_high },
+                characteristics_effect: ComponentResult { name: "Characteristics".to_string(), estimate: point.characteristics, std_err: char_std_err, t_stat: if char_std_err.abs() > 1e-9 { point.characteristics / char_std_err } else { 0.0 }, p_value: char_p_val, ci_lower: char_ci_low, ci_upper: char_ci_high },
+                coefficients_effect: ComponentResult { name: "Coefficients".to_string(), estimate: point.coefficients, std_err: coeff_std_err, t_stat: if coeff_std_err.abs() > 1e-9 { point.coefficients / coeff_std_err } else { 0.0 }, p_value: coeff_p_val, ci_lower: coeff_ci_low, ci_upper: coeff_ci_high },
             };
             final_results.insert(key.clone(), detail);
         }
