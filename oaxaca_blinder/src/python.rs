@@ -1,239 +1,222 @@
+use crate::{ComponentResult, OaxacaResults, TwoFoldResults};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use std::collections::HashMap;
 
-#[pyclass]
-struct PyOaxacaResults {
-    total_gap: f64,
-    explained: f64,
-    unexplained: f64,
-    detailed_explained: HashMap<String, f64>,
-    detailed_unexplained: HashMap<String, f64>,
+#[pyclass(name = "ComponentResult")]
+#[derive(Clone)]
+pub struct PyComponentResult {
+    inner: ComponentResult,
 }
 
 #[pymethods]
-impl PyOaxacaResults {
+impl PyComponentResult {
     #[getter]
-    fn total_gap(&self) -> f64 {
-        self.total_gap
+    fn name(&self) -> &str {
+        self.inner.name()
     }
 
     #[getter]
-    fn explained(&self) -> f64 {
-        self.explained
+    fn estimate(&self) -> f64 {
+        *self.inner.estimate()
     }
 
     #[getter]
-    fn unexplained(&self) -> f64 {
-        self.unexplained
+    fn std_err(&self) -> f64 {
+        *self.inner.std_err()
     }
 
     #[getter]
-    fn detailed_explained(&self) -> HashMap<String, f64> {
-        self.detailed_explained.clone()
+    fn p_value(&self) -> f64 {
+        *self.inner.p_value()
     }
 
     #[getter]
-    fn detailed_unexplained(&self) -> HashMap<String, f64> {
-        self.detailed_unexplained.clone()
+    fn ci_lower(&self) -> f64 {
+        *self.inner.ci_lower()
     }
 
-    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("total_gap", self.total_gap)?;
-        dict.set_item("explained", self.explained)?;
-        dict.set_item("unexplained", self.unexplained)?;
-        dict.set_item("detailed_explained", self.detailed_explained.clone())?;
-        dict.set_item("detailed_unexplained", self.detailed_unexplained.clone())?;
-        Ok(dict.into())
+    #[getter]
+    fn ci_upper(&self) -> f64 {
+        *self.inner.ci_upper()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ComponentResult(name={}, estimate={})",
+            self.name(),
+            self.estimate()
+        )
     }
 }
 
-/// Performs Oaxaca-Blinder decomposition from a CSV file.
-#[pyfunction]
-#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, bootstrap_reps=100, weights=None, selection_outcome=None, selection_predictors=None))]
-fn decompose_from_csv(
-    csv_path: &str,
-    outcome: &str,
+#[pyclass(name = "TwoFoldResults")]
+#[derive(Clone)]
+pub struct PyTwoFoldResults {
+    #[pyo3(get)]
+    aggregate: Vec<PyComponentResult>,
+    #[pyo3(get)]
+    detailed_explained: Vec<PyComponentResult>,
+    #[pyo3(get)]
+    detailed_unexplained: Vec<PyComponentResult>,
+}
+
+impl From<&TwoFoldResults> for PyTwoFoldResults {
+    fn from(results: &TwoFoldResults) -> Self {
+        PyTwoFoldResults {
+            aggregate: results
+                .aggregate()
+                .iter()
+                .map(|c| PyComponentResult { inner: c.clone() })
+                .collect(),
+            detailed_explained: results
+                .detailed_explained()
+                .iter()
+                .map(|c| PyComponentResult { inner: c.clone() })
+                .collect(),
+            detailed_unexplained: results
+                .detailed_unexplained()
+                .iter()
+                .map(|c| PyComponentResult { inner: c.clone() })
+                .collect(),
+        }
+    }
+}
+
+#[pyclass(name = "OaxacaResults")]
+pub struct PyOaxacaResults {
+    #[pyo3(get)]
+    total_gap: f64,
+    #[pyo3(get)]
+    two_fold: PyTwoFoldResults,
+    #[pyo3(get)]
+    n_a: usize,
+    #[pyo3(get)]
+    n_b: usize,
+    inner: OaxacaResults,
+}
+
+impl From<OaxacaResults> for PyOaxacaResults {
+    fn from(results: OaxacaResults) -> Self {
+        PyOaxacaResults {
+            total_gap: *results.total_gap(),
+            two_fold: PyTwoFoldResults::from(results.two_fold()),
+            n_a: *results.n_a(),
+            n_b: *results.n_b(),
+            inner: results,
+        }
+    }
+}
+
+use crate::OaxacaBuilder;
+use polars::prelude::DataFrame;
+use pyo3_polars::PyDataFrame;
+use std::collections::HashMap;
+
+#[pyclass(name = "OaxacaBlinder")]
+pub struct PyOaxacaBlinder {
+    dataframe: DataFrame,
+    outcome: String,
+    group: String,
+    reference_group: String,
     predictors: Vec<String>,
     categorical_predictors: Vec<String>,
-    group: &str,
-    reference_group: &str,
     bootstrap_reps: usize,
     weights: Option<String>,
-    selection_outcome: Option<String>,
-    selection_predictors: Option<Vec<String>>,
-) -> PyResult<PyOaxacaResults> {
-    use polars::prelude::*;
-    use crate::OaxacaBuilder;
-
-    let df = LazyCsvReader::new(csv_path)
-        .finish()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
-        .collect()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
-
-    let pred_refs: Vec<&str> = predictors.iter().map(|s| s.as_str()).collect();
-    let cat_refs: Vec<&str> = categorical_predictors.iter().map(|s| s.as_str()).collect();
-
-    let mut builder = OaxacaBuilder::new(df, outcome, group, reference_group);
-    builder.predictors(&pred_refs)
-           .categorical_predictors(&cat_refs)
-           .bootstrap_reps(bootstrap_reps);
-
-    if let Some(w) = &weights {
-        builder.weights(w);
-    }
-
-    if let (Some(sel_out), Some(sel_preds)) = (selection_outcome, selection_predictors) {
-        let sel_preds_refs: Vec<&str> = sel_preds.iter().map(|s| s.as_str()).collect();
-        builder.heckman_selection(&sel_out, &sel_preds_refs);
-    }
-
-    let results = builder.run()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Decomposition failed: {:?}", e)))?;
-
-    let explained = results.two_fold().aggregate().iter()
-        .find(|c| c.name() == "explained")
-        .map(|c| *c.estimate())
-        .unwrap_or(0.0);
-
-    let unexplained = results.two_fold().aggregate().iter()
-        .find(|c| c.name() == "unexplained")
-        .map(|c| *c.estimate())
-        .unwrap_or(0.0);
-
-    let mut detailed_explained = HashMap::new();
-    for comp in results.two_fold().detailed_explained() {
-        detailed_explained.insert(comp.name().to_string(), *comp.estimate());
-    }
-
-    let mut detailed_unexplained = HashMap::new();
-    for comp in results.two_fold().detailed_unexplained() {
-        detailed_unexplained.insert(comp.name().to_string(), *comp.estimate());
-    }
-
-    Ok(PyOaxacaResults {
-        total_gap: *results.total_gap(),
-        explained,
-        unexplained,
-        detailed_explained,
-        detailed_unexplained,
-    })
 }
 
-/// Performs Quantile Decomposition (RIF-Regression) from a CSV file.
-#[pyfunction]
-#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, quantile, bootstrap_reps=100, weights=None))]
-fn decompose_quantile_from_csv(
-    csv_path: &str,
-    outcome: &str,
-    predictors: Vec<String>,
-    categorical_predictors: Vec<String>,
-    group: &str,
-    reference_group: &str,
-    quantile: f64,
-    bootstrap_reps: usize,
-    weights: Option<String>,
-) -> PyResult<PyOaxacaResults> {
-    use polars::prelude::*;
-    use crate::OaxacaBuilder;
-
-    let df = LazyCsvReader::new(csv_path)
-        .finish()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
-        .collect()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
-
-    let pred_refs: Vec<&str> = predictors.iter().map(|s| s.as_str()).collect();
-    let cat_refs: Vec<&str> = categorical_predictors.iter().map(|s| s.as_str()).collect();
-
-    let mut builder = OaxacaBuilder::new(df, outcome, group, reference_group);
-    builder.predictors(&pred_refs)
-           .categorical_predictors(&cat_refs)
-           .bootstrap_reps(bootstrap_reps);
-
-    if let Some(w) = &weights {
-        builder.weights(w);
+#[pymethods]
+impl PyOaxacaBlinder {
+    #[new]
+    #[pyo3(
+        signature = (dataframe, outcome, group, reference_group, predictors, categorical_predictors=Vec::new(), bootstrap_reps=100, weights=None)
+    )]
+    fn new(
+        dataframe: PyDataFrame,
+        outcome: String,
+        group: String,
+        reference_group: String,
+        predictors: Vec<String>,
+        categorical_predictors: Vec<String>,
+        bootstrap_reps: usize,
+        weights: Option<String>,
+    ) -> Self {
+        let df: DataFrame = dataframe.into();
+        Self {
+            dataframe: df,
+            outcome,
+            group,
+            reference_group,
+            predictors,
+            categorical_predictors,
+            bootstrap_reps,
+            weights,
+        }
     }
 
-    let results = builder.decompose_quantile(quantile)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Quantile decomposition failed: {:?}", e)))?;
+    fn _create_builder(&self) -> OaxacaBuilder {
+        let pred_refs: Vec<&str> = self.predictors.iter().map(|s| s.as_str()).collect();
+        let cat_refs: Vec<&str> = self
+            .categorical_predictors
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
 
-    let explained = results.two_fold().aggregate().iter()
-        .find(|c| c.name() == "explained")
-        .map(|c| *c.estimate())
-        .unwrap_or(0.0);
+        let mut builder = OaxacaBuilder::new(
+            self.dataframe.clone(),
+            &self.outcome,
+            &self.group,
+            &self.reference_group,
+        );
+        builder
+            .predictors(&pred_refs)
+            .categorical_predictors(&cat_refs)
+            .bootstrap_reps(self.bootstrap_reps);
 
-    let unexplained = results.two_fold().aggregate().iter()
-        .find(|c| c.name() == "unexplained")
-        .map(|c| *c.estimate())
-        .unwrap_or(0.0);
-
-    let mut detailed_explained = HashMap::new();
-    for comp in results.two_fold().detailed_explained() {
-        detailed_explained.insert(comp.name().to_string(), *comp.estimate());
+        if let Some(w) = &self.weights {
+            builder.weights(w);
+        }
+        builder
     }
 
-    let mut detailed_unexplained = HashMap::new();
-    for comp in results.two_fold().detailed_unexplained() {
-        detailed_unexplained.insert(comp.name().to_string(), *comp.estimate());
+    fn fit(&self) -> PyResult<PyOaxacaResults> {
+        let builder = self._create_builder();
+        let results = builder
+            .run()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+
+        Ok(results.into())
     }
 
-    Ok(PyOaxacaResults {
-        total_gap: *results.total_gap(),
-        explained,
-        unexplained,
-        detailed_explained,
-        detailed_unexplained,
-    })
-}
+    fn fit_quantile(&self, quantile: f64) -> PyResult<PyOaxacaResults> {
+        let builder = self._create_builder();
+        let results = builder
+            .decompose_quantile(quantile)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-/// Optimizes budget to reduce pay gap.
-#[pyfunction]
-#[pyo3(signature = (csv_path, outcome, predictors, categorical_predictors, group, reference_group, budget, target_gap))]
-fn optimize_budget_from_csv(
-    csv_path: &str,
-    outcome: &str,
-    predictors: Vec<String>,
-    categorical_predictors: Vec<String>,
-    group: &str,
-    reference_group: &str,
-    budget: f64,
-    target_gap: f64,
-) -> PyResult<Vec<HashMap<String, f64>>> {
-    use polars::prelude::*;
-    use crate::OaxacaBuilder;
-
-    let df = LazyCsvReader::new(csv_path)
-        .finish()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read CSV: {}", e)))?
-        .collect()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse CSV: {}", e)))?;
-
-    let pred_refs: Vec<&str> = predictors.iter().map(|s| s.as_str()).collect();
-    let cat_refs: Vec<&str> = categorical_predictors.iter().map(|s| s.as_str()).collect();
-
-    let mut builder = OaxacaBuilder::new(df, outcome, group, reference_group);
-    builder.predictors(&pred_refs)
-           .categorical_predictors(&cat_refs)
-           .bootstrap_reps(0); // No bootstrap needed for budget optimization
-
-    let results = builder.run()
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Decomposition failed: {:?}", e)))?;
-
-    let adjustments = results.optimize_budget(budget, target_gap);
-
-    let mut py_adjustments = Vec::new();
-    for adj in adjustments {
-        let mut map = HashMap::new();
-        map.insert("index".to_string(), adj.index as f64);
-        map.insert("original_residual".to_string(), adj.original_residual);
-        map.insert("adjustment".to_string(), adj.adjustment);
-        py_adjustments.push(map);
+        Ok(results.into())
     }
 
-    Ok(py_adjustments)
+    fn optimize_budget(
+        &self,
+        budget: f64,
+        target_gap: f64,
+    ) -> PyResult<Vec<HashMap<String, f64>>> {
+        let mut builder = self._create_builder();
+        builder.bootstrap_reps(0); // No bootstrap needed for budget optimization
+        let results = builder
+            .run()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+
+        let adjustments = results.optimize_budget(budget, target_gap);
+        let mut py_adjustments = Vec::new();
+        for adj in adjustments {
+            let mut map = HashMap::new();
+            map.insert("index".to_string(), adj.index as f64);
+            map.insert("original_residual".to_string(), adj.original_residual);
+            map.insert("adjustment".to_string(), adj.adjustment);
+            py_adjustments.push(map);
+        }
+        Ok(py_adjustments)
+    }
 }
 
 /// Performs DFL Reweighting.
@@ -305,13 +288,13 @@ fn match_units(
 /// Python module for oaxaca_blinder
 #[pymodule]
 fn oaxaca_blinder(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(decompose_from_csv, m)?)?;
-    m.add_function(wrap_pyfunction!(decompose_quantile_from_csv, m)?)?;
-    m.add_function(wrap_pyfunction!(optimize_budget_from_csv, m)?)?;
+    m.add_class::<PyOaxacaBlinder>()?;
+    m.add_class::<PyOaxacaResults>()?;
+    m.add_class::<PyTwoFoldResults>()?;
+    m.add_class::<PyComponentResult>()?;
     m.add_function(wrap_pyfunction!(run_dfl_from_csv, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_akm, m)?)?;
     m.add_function(wrap_pyfunction!(match_units, m)?)?;
-    m.add_class::<PyOaxacaResults>()?;
     m.add_class::<PyAkmResult>()?;
     Ok(())
 }
