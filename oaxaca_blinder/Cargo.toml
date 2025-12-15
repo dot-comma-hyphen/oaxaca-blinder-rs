@@ -30,6 +30,7 @@ serde_json = "1.0"
 statrs = "0.18.0"
 kdtree = "0.7"
 pyo3 = { version = "0.21", features = ["extension-module"], optional = true }
+pyo3-polars = "0.13.0"
 
 [features]
 default = []
