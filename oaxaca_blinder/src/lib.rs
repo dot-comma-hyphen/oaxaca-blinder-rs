@@ -747,7 +747,8 @@ impl OaxacaBuilder {
 
         let process_component = |name: &str, point: f64, estimates: Vec<f64>| {
             let (std_err, p_value, (ci_lower, ci_upper)) = bootstrap_stats(&estimates, point);
-            ComponentResult { name: name.to_string(), estimate: point, std_err, p_value, ci_lower, ci_upper }
+            let t_stat = if std_err.abs() > 1e-9 { point / std_err } else { 0.0 };
+            ComponentResult { name: name.to_string(), estimate: point, std_err, t_stat, p_value, ci_lower, ci_upper }
         };
 
         let two_fold_agg = vec![
@@ -855,6 +856,29 @@ pub struct OaxacaResults {
 }
 
 impl OaxacaResults {
+    pub fn explained(&self) -> &ComponentResult {
+        self.two_fold.aggregate().iter().find(|c| c.name == "explained").expect("Explained component not found")
+    }
+
+    pub fn unexplained(&self) -> &ComponentResult {
+        self.two_fold.aggregate().iter().find(|c| c.name == "unexplained").expect("Unexplained component not found")
+    }
+
+    pub fn get_summary_table(&self) -> Vec<(&String, &ComponentResult)> {
+        self.two_fold.aggregate().iter().map(|c| (&c.name, c)).collect()
+    }
+
+    pub fn get_detailed_table(&self) -> Vec<(String, f64, f64)> {
+        let mut map = std::collections::HashMap::new();
+        for comp in self.two_fold.detailed_explained() {
+            map.entry(comp.name().clone()).or_insert((0.0, 0.0)).0 = *comp.estimate();
+        }
+        for comp in self.two_fold.detailed_unexplained() {
+            map.entry(comp.name().clone()).or_insert((0.0, 0.0)).1 = *comp.estimate();
+        }
+        map.into_iter().map(|(k, (v1, v2))| (k, v1, v2)).collect()
+    }
+
     /// Prints a formatted summary of the decomposition results to the console.
     pub fn summary(&self) {
         println!("Oaxaca-Blinder Decomposition Results");
@@ -1058,6 +1082,7 @@ pub struct ComponentResult {
     name: String,
     estimate: f64,
     std_err: f64,
+    t_stat: f64,
     p_value: f64,
     ci_lower: f64,
     ci_upper: f64,
