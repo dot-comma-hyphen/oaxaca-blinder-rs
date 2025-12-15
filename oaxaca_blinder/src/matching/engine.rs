@@ -70,75 +70,10 @@ impl MatchingEngine {
     ///
     /// * `k` - Number of neighbors to match.
     /// * `metric` - Distance metric to use.
-    pub fn match_nearest_neighbor<M: DistanceMetric>(&self, k: usize, _metric: &M) -> Result<DVector<f64>, OaxacaError> {
-        let (x_treated, x_control, _, _) = self.prepare_data()?;
-        let n_treated = x_treated.nrows();
-        let n_control = x_control.nrows();
-        let n_features = x_treated.ncols();
-        
-        // Build K-D Tree for Control group
-        // kdtree crate works with simple arrays/slices.
-        // We need to convert DMatrix rows to Vec<f64> or similar.
-        // The tree stores the index of the control unit.
-        let mut kdtree = KdTree::new(n_features);
-        
-        for i in 0..n_control {
-            let row = x_control.row(i);
-            let point: Vec<f64> = row.iter().copied().collect();
-            kdtree.add(point, i).map_err(|e| OaxacaError::DiagnosticError(format!("K-D Tree error: {}", e)))?;
-        }
-        
-        // Weights for control units
-        // Initialize with 0
-        let mut control_weights = vec![0.0; n_control];
-        
-        // For each treated unit, find k nearest neighbors
-        for i in 0..n_treated {
-            let row = x_treated.row(i);
-            let point: Vec<f64> = row.iter().copied().collect();
-            
-            // Use squared euclidean for KDTree query if metric is Euclidean
-            // If metric is Mahalanobis, we can't use standard KDTree efficiently unless we transform the space.
-            // But for now, let's assume we can use the custom metric or just transform data.
-            
-            // Optimization: If Mahalanobis, transform X to Z = X * L^-T where Cov = L * L^T (Cholesky)
-            // Then Euclidean on Z is equivalent to Mahalanobis on X.
-            // But we already implemented MahalanobisDistance struct.
-            // The kdtree crate supports custom distance function? No, it's hardcoded to squared_euclidean for `nearest`.
-            // Wait, `kdtree` crate is generic over point type, but distance is usually Euclidean.
-            
-            // If we want to use Mahalanobis with KDTree, we MUST transform the data first.
-            // Let's assume the user passes transformed data OR we handle it.
-            // For now, let's stick to Euclidean on whatever data is passed.
-            // If the user wants Mahalanobis, they should ideally pass transformed data, 
-            // OR we implement the transformation here if we detect Mahalanobis.
-            
-            // Actually, let's just use the tree.
-            let nearest = kdtree.nearest(&point, k, &squared_euclidean)
-                .map_err(|e| OaxacaError::DiagnosticError(format!("K-D Tree search error: {}", e)))?;
-                
-            for (_dist, &index) in nearest {
-                control_weights[index] += 1.0 / (k as f64);
-            }
-        }
-        
-        // Return weights vector for the ENTIRE dataframe?
-        // Or just for the control group?
-        // The requirement says: "The output should not just be 'pairs,' but a vector of Weights."
-        // "Treated units get weight 1."
-        // "Control units get a weight proportional to how many times they were matched."
-        
-        // We need to map these weights back to the original dataframe rows.
-        // This is tricky because we split the dataframe.
-        // We need original indices.
-        
-        // Let's assume we return a DVector of weights aligned with the input dataframe.
-        let _final_weights = vec![0.0; self.dataframe.height()];
-        
-        // We need to know which row in `control_df` corresponds to which row in `dataframe`.
-        // We can add an index column before splitting.
-        
-        Ok(DVector::from_vec(vec![])) // Placeholder, need to fix index mapping
+    pub fn match_nearest_neighbor<M: DistanceMetric>(&self, k: usize, metric: &M) -> Result<DVector<f64>, OaxacaError> {
+        let use_mahalanobis = metric.is_mahalanobis();
+        let weights = self.run_matching(k, use_mahalanobis)?;
+        Ok(DVector::from_vec(weights))
     }
     
     /// Helper to get weights with index mapping
@@ -279,5 +214,40 @@ impl MatchingEngine {
         
         let engine = MatchingEngine::new(df_with_score, &self.treatment_col, &self.outcome_col, &["propensity_score"]);
         engine.run_matching(k, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::matching::distance::EuclideanDistance;
+
+    // Helper to create a dummy dataframe
+    fn create_dummy_df() -> DataFrame {
+        // 2 features: age, education
+        // Treatment: 0 (control), 1 (treated)
+        // Outcome: wage
+
+        let s0 = Series::new("treatment".into(), &[1, 1, 0, 0, 0]);
+        let s1 = Series::new("outcome".into(), &[10.0, 12.0, 8.0, 9.0, 8.5]);
+        let s2 = Series::new("age".into(), &[30.0, 40.0, 31.0, 41.0, 35.0]);
+        let s3 = Series::new("education".into(), &[12.0, 16.0, 12.0, 16.0, 14.0]);
+
+        DataFrame::new(vec![Column::Series(s0), Column::Series(s1), Column::Series(s2), Column::Series(s3)]).unwrap()
+    }
+
+    #[test]
+    fn test_match_nearest_neighbor_euclidean() {
+        let df = create_dummy_df();
+        let engine = MatchingEngine::new(df, "treatment", "outcome", &["age", "education"]);
+
+        let weights = engine.match_nearest_neighbor(1, &EuclideanDistance).unwrap();
+
+        assert_eq!(weights.len(), 5);
+
+        // Check weights logic
+        // Treated units (indices 0, 1) should have weight 1.0
+        assert_eq!(weights[0], 1.0);
+        assert_eq!(weights[1], 1.0);
     }
 }
