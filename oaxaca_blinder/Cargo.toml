@@ -31,10 +31,12 @@ statrs = "0.18.0"
 kdtree = "0.7"
 pyo3 = { version = "0.21", features = ["extension-module"], optional = true }
 pyo3-polars = "0.13.0"
+askama = "0.14.0"
 
 [features]
 default = []
 python = ["pyo3"]
+pyo3 = ["dep:pyo3"]
 
 [dev-dependencies]
 assert_cmd = "2.0"

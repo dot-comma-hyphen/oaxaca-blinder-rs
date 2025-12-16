@@ -256,83 +256,11 @@ struct HeckmanEstimator {
 
 impl Estimator for HeckmanEstimator {
     fn estimate(&self, ctx: &EstimationContext) -> Result<EstimationResult, OaxacaError> {
-        let prepare_selection = |df_group: &DataFrame| -> Result<
-            (DMatrix<f64>, DVector<f64>, DMatrix<f64>),
-            OaxacaError,
-        > {
-            let y_sel_series = df_group.column(&self.selection_outcome)?.f64()?;
-            let y_sel_vec: Vec<f64> = y_sel_series
-                .into_iter()
-                .map(|opt| opt.expect("Selection outcome should be clean"))
-                .collect();
-            let y_sel = DVector::from_vec(y_sel_vec);
+        let (x_sel_a, y_sel_a, x_sel_sub_a) = self.prepare_selection_data(ctx.df_a)?;
+        let (x_sel_b, y_sel_b, x_sel_sub_b) = self.prepare_selection_data(ctx.df_b)?;
 
-            let mut x_sel_df = df_group.select(&self.selection_predictors)?;
-            let intercept = Series::new("intercept".into(), vec![1.0; df_group.height()]);
-            x_sel_df.with_column(intercept)?;
-            let mut cols = vec!["intercept".to_string()];
-            cols.extend(self.selection_predictors.clone());
-            let x_sel_df = x_sel_df.select(&cols)?;
-
-            let x_sel_mat = x_sel_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
-            let x_sel_vec: Vec<f64> = x_sel_mat.iter().copied().collect();
-            let x_sel = DMatrix::from_row_slice(x_sel_df.height(), x_sel_df.width(), &x_sel_vec);
-
-            let mask = df_group
-                .column(&self.selection_outcome)?
-                .as_materialized_series()
-                .equal(1)?;
-            let df_subset = df_group.filter(&mask)?;
-
-            let mut x_sel_sub_df = df_subset.select(&self.selection_predictors)?;
-            x_sel_sub_df.with_column(Series::new(
-                "intercept".into(),
-                vec![1.0; df_subset.height()],
-            ))?;
-            let x_sel_sub_df = x_sel_sub_df.select(&cols)?;
-
-            let x_sel_sub_mat = x_sel_sub_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
-            let x_sel_sub_vec: Vec<f64> = x_sel_sub_mat.iter().copied().collect();
-            let x_sel_sub = DMatrix::from_row_slice(
-                x_sel_sub_df.height(),
-                x_sel_sub_df.width(),
-                &x_sel_sub_vec,
-            );
-
-            Ok((x_sel, y_sel, x_sel_sub))
-        };
-
-        let (x_sel_a, y_sel_a, x_sel_sub_a) = prepare_selection(ctx.df_a)?;
-        let (x_sel_b, y_sel_b, x_sel_sub_b) = prepare_selection(ctx.df_b)?;
-
-        let filter_outcome_data = |x: &DMatrix<f64>,
-                                   y: &DVector<f64>,
-                                   df: &DataFrame|
-         -> Result<(DMatrix<f64>, DVector<f64>), OaxacaError> {
-            let mask = df
-                .column(&self.selection_outcome)?
-                .as_materialized_series()
-                .equal(1)?;
-            let mut rows = Vec::new();
-            let mut y_vals = Vec::new();
-            for i in 0..df.height() {
-                if mask.get(i) == Some(true) {
-                    rows.push(x.row(i).into_owned());
-                    y_vals.push(y[i]);
-                }
-            }
-            if rows.is_empty() {
-                return Err(OaxacaError::InvalidGroupVariable(
-                    "No observed outcomes in group".to_string(),
-                ));
-            }
-            let x_filtered = DMatrix::from_rows(&rows);
-            let y_filtered = DVector::from_vec(y_vals);
-            Ok((x_filtered, y_filtered))
-        };
-
-        let (x_a_filt, y_a_filt) = filter_outcome_data(ctx.x_a, ctx.y_a, ctx.df_a)?;
-        let (x_b_filt, y_b_filt) = filter_outcome_data(ctx.x_b, ctx.y_b, ctx.df_b)?;
+        let (x_a_filt, y_a_filt) = self.filter_outcome_rows(ctx.x_a, ctx.y_a, ctx.df_a)?;
+        let (x_b_filt, y_b_filt) = self.filter_outcome_rows(ctx.x_b, ctx.y_b, ctx.df_b)?;
 
         let res_a = heckman_two_step(&y_sel_a, &x_sel_a, &y_a_filt, &x_a_filt, &x_sel_sub_a)?;
         let res_b = heckman_two_step(&y_sel_b, &x_sel_b, &y_b_filt, &x_b_filt, &x_sel_sub_b)?;
@@ -371,6 +299,79 @@ impl Estimator for HeckmanEstimator {
             base_coeffs_a: HashMap::new(),
             base_coeffs_b: HashMap::new(),
         })
+    }
+}
+
+impl HeckmanEstimator {
+    fn prepare_selection_data(
+        &self,
+        df_group: &DataFrame,
+    ) -> Result<(DMatrix<f64>, DVector<f64>, DMatrix<f64>), OaxacaError> {
+        let y_sel_series = df_group.column(&self.selection_outcome)?.f64()?;
+        let y_sel_vec: Vec<f64> = y_sel_series
+            .into_iter()
+            .map(|opt| opt.expect("Selection outcome should be clean"))
+            .collect();
+        let y_sel = DVector::from_vec(y_sel_vec);
+
+        let mut x_sel_df = df_group.select(&self.selection_predictors)?;
+        let intercept = Series::new("intercept".into(), vec![1.0; df_group.height()]);
+        x_sel_df.with_column(intercept)?;
+        let mut cols = vec!["intercept".to_string()];
+        cols.extend(self.selection_predictors.clone());
+        let x_sel_df = x_sel_df.select(&cols)?;
+
+        let x_sel_mat = x_sel_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
+        let x_sel_vec: Vec<f64> = x_sel_mat.iter().copied().collect();
+        let x_sel = DMatrix::from_row_slice(x_sel_df.height(), x_sel_df.width(), &x_sel_vec);
+
+        let mask = df_group
+            .column(&self.selection_outcome)?
+            .as_materialized_series()
+            .equal(1)?;
+        let df_subset = df_group.filter(&mask)?;
+
+        let mut x_sel_sub_df = df_subset.select(&self.selection_predictors)?;
+        x_sel_sub_df.with_column(Series::new(
+            "intercept".into(),
+            vec![1.0; df_subset.height()],
+        ))?;
+        let x_sel_sub_df = x_sel_sub_df.select(&cols)?;
+
+        let x_sel_sub_mat = x_sel_sub_df.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
+        let x_sel_sub_vec: Vec<f64> = x_sel_sub_mat.iter().copied().collect();
+        let x_sel_sub =
+            DMatrix::from_row_slice(x_sel_sub_df.height(), x_sel_sub_df.width(), &x_sel_sub_vec);
+
+        Ok((x_sel, y_sel, x_sel_sub))
+    }
+
+    fn filter_outcome_rows(
+        &self,
+        x: &DMatrix<f64>,
+        y: &DVector<f64>,
+        df: &DataFrame,
+    ) -> Result<(DMatrix<f64>, DVector<f64>), OaxacaError> {
+        let mask = df
+            .column(&self.selection_outcome)?
+            .as_materialized_series()
+            .equal(1)?;
+        let mut rows = Vec::new();
+        let mut y_vals = Vec::new();
+        for i in 0..df.height() {
+            if mask.get(i) == Some(true) {
+                rows.push(x.row(i).into_owned());
+                y_vals.push(y[i]);
+            }
+        }
+        if rows.is_empty() {
+            return Err(OaxacaError::InvalidGroupVariable(
+                "No observed outcomes in group".to_string(),
+            ));
+        }
+        let x_filtered = DMatrix::from_rows(&rows);
+        let y_filtered = DVector::from_vec(y_vals);
+        Ok((x_filtered, y_filtered))
     }
 }
 impl OaxacaBuilder {
@@ -595,8 +596,14 @@ impl OaxacaBuilder {
         // Safe to unwrap because we ran clean_dataframe
         let y_vec: Vec<f64> = y_series
             .into_iter()
-            .map(|opt| opt.expect("Null values should have been dropped"))
-            .collect();
+            .map(|opt| {
+                opt.ok_or_else(|| {
+                    OaxacaError::PolarsError(PolarsError::ComputeError(
+                        "Null values found in outcome after cleaning".into(),
+                    ))
+                })
+            })
+            .collect::<Result<Vec<f64>, _>>()?;
         let y = DVector::from_vec(y_vec);
 
         let mut current_predictors = self.predictors.clone();
@@ -636,8 +643,14 @@ impl OaxacaBuilder {
             let w_series = df.column(w_col)?.f64()?;
             let w_vec: Vec<f64> = w_series
                 .into_iter()
-                .map(|opt| opt.expect("Null weights should have been dropped"))
-                .collect();
+                .map(|opt| {
+                    opt.ok_or_else(|| {
+                        OaxacaError::PolarsError(PolarsError::ComputeError(
+                            "Null weights found after cleaning".into(),
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<f64>, _>>()?;
             Some(DVector::from_vec(w_vec))
         } else {
             None

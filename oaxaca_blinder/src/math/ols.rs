@@ -40,40 +40,44 @@ pub struct OlsResult {
 ///
 /// A `Result` containing the `OlsResult` on success, or an `OaxacaError` if the
 /// `X'WX` matrix is singular and cannot be inverted.
-pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>, weights: Option<&DVector<f64>>) -> Result<OlsResult, OaxacaError> {
+pub fn ols(
+    y: &DVector<f64>,
+    x: &DMatrix<f64>,
+    weights: Option<&DVector<f64>>,
+) -> Result<OlsResult, OaxacaError> {
     let (xtx, xty, n_obs) = if let Some(w) = weights {
         // Weighted Least Squares
         // We want to minimize (y - Xβ)'W(y - Xβ)
         // Normal equations: (X'WX)β = X'Wy
-        
+
         // Efficiently compute X'WX and X'Wy without creating the full diagonal matrix W
         // X'WX = \sum w_i * x_i * x_i'
         // X'Wy = \sum w_i * x_i * y_i
-        
+
         // Alternative: Transform data X* = \sqrt{W}X, y* = \sqrt{W}y
         // Then run OLS on X*, y*
         let w_sqrt = w.map(|v| v.sqrt());
-        
+
         // Scale X by sqrt(weights) row-wise
         let mut x_w = x.clone();
         for j in 0..x.ncols() {
             let mut col = x_w.column_mut(j);
             col.component_mul_assign(&w_sqrt);
         }
-        
+
         // Scale y by sqrt(weights)
         let y_w = y.component_mul(&w_sqrt);
-        
+
         let xtx = x_w.transpose() * &x_w;
         let xty = x_w.transpose() * &y_w;
-        
+
         // Effective sample size? Usually just sum of weights or N?
         // For variance estimation in survey data, it's complicated.
         // But for standard WLS (heteroskedasticity), we use N.
         // If weights are frequency weights, we use sum(w).
         // Let's assume sampling weights/frequency weights -> sum(w).
         let n = w.sum();
-        
+
         (xtx, xty, n)
     } else {
         // Ordinary Least Squares
@@ -83,15 +87,18 @@ pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>, weights: Option<&DVector<f64>>) -
         (xtx, xty, n)
     };
 
-    // Attempt to invert the X'X (or X'WX) matrix.
-    let xtx_inv = xtx.try_inverse().ok_or_else(|| {
+    // Attempt Cholesky decomposition on X'X (or X'WX).
+    // This is more numerically stable than explicit inversion and acts as a check for positive-definiteness.
+    // X'X should be positive definite if there is no perfect multicollinearity.
+    let cholesky = xtx.cholesky().ok_or_else(|| {
         OaxacaError::NalgebraError(
-            "Failed to invert matrix. This is likely due to perfect multicollinearity.".to_string(),
+            "Failed to perform Cholesky decomposition. Matrix may be singular or not positive definite due to multicollinearity.".to_string(),
         )
     })?;
 
-    // Calculate the coefficients: β = (X'X)⁻¹ * X'y
-    let coefficients = &xtx_inv * xty;
+    // Calculate coefficients: β = (X'X)⁻¹ * X'y
+    // We solve the linear system (X'X) * β = X'y using the Cholesky factor.
+    let coefficients = cholesky.solve(&xty);
 
     // Calculate residuals (Raw residuals: y - Xβ)
     let y_hat = x * &coefficients;
@@ -100,7 +107,7 @@ pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>, weights: Option<&DVector<f64>>) -
     // Calculate residual variance
     // For WLS: e'We / (n - k)
     let k = x.ncols() as f64;
-    
+
     let sse = if let Some(w) = weights {
         // Weighted Sum of Squared Errors
         let weighted_residuals = residuals.component_mul(w); // e * w
@@ -108,17 +115,20 @@ pub fn ols(y: &DVector<f64>, x: &DMatrix<f64>, weights: Option<&DVector<f64>>) -
     } else {
         residuals.norm_squared()
     };
-    
+
     let sigma_squared = sse / (n_obs - k);
 
-    // Calculate variance-covariance matrix
+    // Calculate variance-covariance matrix: (X'X)⁻¹ * σ²
+    // We can get the inverse from the Cholesky decomposition efficiently.
+    let xtx_inv = cholesky.inverse();
     let vcov = xtx_inv * sigma_squared;
 
-    Ok(OlsResult { coefficients, vcov, residuals })
+    Ok(OlsResult {
+        coefficients,
+        vcov,
+        residuals,
+    })
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -134,8 +144,7 @@ mod tests {
             2,
             vec![
                 // Column 1: Intercept
-                1.0, 1.0, 1.0, 1.0, 1.0,
-                // Column 2: x-values
+                1.0, 1.0, 1.0, 1.0, 1.0, // Column 2: x-values
                 0.0, 1.0, 2.0, 3.0, 4.0,
             ],
         );
@@ -159,8 +168,7 @@ mod tests {
             2,
             vec![
                 // Column 1
-                1.0, 1.0, 1.0,
-                // Column 2
+                1.0, 1.0, 1.0, // Column 2
                 2.0, 2.0, 2.0,
             ],
         );
@@ -172,11 +180,9 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(OaxacaError::NalgebraError(msg)) => {
-                assert!(msg.contains("Failed to invert X'X matrix"));
+                assert!(msg.contains("Failed to perform Cholesky decomposition"));
             }
             _ => panic!("Expected a NalgebraError for a singular matrix, but got something else."),
         }
     }
-
-    
 }

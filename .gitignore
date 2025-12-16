@@ -11,3 +11,8 @@ oaxaca_blinder/check_output_6.txt
 oaxaca_blinder/check_output_7.txt
 oaxaca_blinder/check_output_8.txt
 oaxaca_blinder/check_output.txt
+
+build.log
+.DS_Store
+*.iml
+.idea/

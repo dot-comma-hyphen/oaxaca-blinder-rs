@@ -5,60 +5,6 @@ use serde::Serialize;
 use std::error::Error;
 use std::path::PathBuf;
 
-#[derive(Serialize)]
-struct OverallRow {
-    name: String,
-    coefficient: f64,
-    std_error: f64,
-    t_stat: f64,
-    p_value: f64,
-}
-
-#[derive(Serialize)]
-struct DetailedRow {
-    variable: String,
-    explained: f64,
-    unexplained: f64,
-}
-
-struct ReportData {
-    total_gap: String,
-    explained_gap: String,
-    unexplained_gap: String,
-    overall: Vec<OverallRow>,
-    detailed: Vec<DetailedRow>,
-}
-
-impl ReportData {
-    fn render(&self) -> Result<String, Box<dyn Error>> {
-        let mut overall_rows = String::new();
-        for row in &self.overall {
-            overall_rows.push_str(&format!(
-                "<tr><td>{}</td><td>{:.4}</td><td>{:.4}</td><td>{:.4}</td><td>{:.4}</td></tr>",
-                row.name, row.coefficient, row.std_error, row.t_stat, row.p_value
-            ));
-        }
-
-        let mut detailed_rows = String::new();
-        for row in &self.detailed {
-            detailed_rows.push_str(&format!(
-                "<tr><td>{}</td><td>{:.4}</td><td>{:.4}</td><td>{:.4}</td></tr>",
-                row.variable, row.explained, row.unexplained, row.explained + row.unexplained
-            ));
-        }
-
-        let template = include_str!("../templates/report.html");
-        let html = template
-            .replace("{{ total_gap }}", &self.total_gap)
-            .replace("{{ explained_gap }}", &self.explained_gap)
-            .replace("{{ unexplained_gap }}", &self.unexplained_gap)
-            .replace("<!-- overall_rows -->", &overall_rows)
-            .replace("<!-- detailed_rows -->", &detailed_rows);
-
-        Ok(html)
-    }
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -76,6 +22,22 @@ enum Commands {
     Run(RunArgs),
     /// Generate a static HTML report from an analysis
     Report(ReportArgs),
+}
+
+#[derive(Clone, Debug, clap::ValueEnum)]
+enum AnalysisType {
+    Mean,
+    Quantile,
+    Akm,
+    Match,
+}
+
+#[derive(Clone, Debug, clap::ValueEnum)]
+enum ReferenceType {
+    GroupA,
+    GroupB,
+    Pooled,
+    Weighted,
 }
 
 #[derive(Parser, Debug)]
@@ -104,13 +66,13 @@ struct RunArgs {
     #[arg(long, value_delimiter = ',')]
     categorical: Option<Vec<String>>,
 
-    /// The type of analysis to perform [choices: mean, quantile, akm, match]
-    #[arg(long, default_value = "mean")]
-    analysis_type: String,
+    /// The type of analysis to perform
+    #[arg(long, default_value = "mean", value_enum)]
+    analysis_type: AnalysisType,
 
-    /// Specifies the reference coefficients for the two-fold decomposition (for mean analysis) [choices: group_a, group_b, pooled, weighted]
-    #[arg(long, default_value = "group_b")]
-    ref_coeffs: String,
+    /// Specifies the reference coefficients for the two-fold decomposition (for mean analysis)
+    #[arg(long, default_value = "group_b", value_enum)]
+    ref_coeffs: ReferenceType,
 
     /// A comma-separated string of quantiles to analyze (for quantile analysis)
     #[arg(long, value_delimiter = ',')]
@@ -201,129 +163,171 @@ fn run_analysis(args: RunArgs) -> Result<(), Box<dyn Error>> {
         .with_has_header(true)
         .finish()?
         .collect()?;
-    if args.analysis_type == "mean" {
-        let reference_coeffs = match args.ref_coeffs.as_str() {
-            "group_a" => ReferenceCoefficients::GroupA,
-            "group_b" => ReferenceCoefficients::GroupB,
-            "pooled" => ReferenceCoefficients::Pooled,
-            "weighted" => ReferenceCoefficients::Weighted,
-            _ => return Err("Invalid reference coefficient type".into()),
-        };
-        let mut builder = if let Some(formula) = &args.formula {
-            OaxacaBuilder::from_formula(df, formula, &args.group, &args.reference)?
-        } else {
-            let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
-            let categorical_predictors: Vec<&str> = args
-                .categorical
-                .as_ref()
-                .map(|v| v.iter().map(AsRef::as_ref).collect())
-                .unwrap_or_else(Vec::new);
-            let mut b = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference);
-            b.predictors(&predictors)
-                .categorical_predictors(&categorical_predictors);
-            b
-        };
-        builder
-            .bootstrap_reps(args.bootstrap_reps)
-            .reference_coefficients(reference_coeffs);
-        if let Some(weights) = &args.weights {
-            builder.weights(weights);
-        }
-        if let Some(sel_outcome) = &args.selection_outcome {
-            if let Some(sel_predictors) = &args.selection_predictors {
-                let sel_preds_refs: Vec<&str> =
-                    sel_predictors.iter().map(AsRef::as_ref).collect();
-                builder.heckman_selection(sel_outcome, &sel_preds_refs);
-            } else {
-                return Err(
-                    "Selection predictors must be provided if selection outcome is specified".into(),
-                );
-            }
-        }
-        let results = builder.run()?;
-        results.summary();
-        if let Some(path) = args.output_json {
-            let json = results
-                .to_json()
-                .map_err(|e| format!("Failed to serialize to JSON: {}", e))?;
-            std::fs::write(path, json)?;
-        }
-        if let Some(path) = args.output_markdown {
-            let md = results.to_markdown();
-            std::fs::write(path, md)?;
-        }
-    } else if args.analysis_type == "quantile" {
+
+    match args.analysis_type {
+        AnalysisType::Mean => run_mean_analysis(&args, df),
+        AnalysisType::Quantile => run_quantile_analysis(&args, df),
+        AnalysisType::Akm => run_akm_analysis(&args, df),
+        AnalysisType::Match => run_matching_analysis(&args, df),
+    }
+}
+
+fn run_mean_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>> {
+    let reference_coeffs = match args.ref_coeffs {
+        ReferenceType::GroupA => ReferenceCoefficients::GroupA,
+        ReferenceType::GroupB => ReferenceCoefficients::GroupB,
+        ReferenceType::Pooled => ReferenceCoefficients::Pooled,
+        ReferenceType::Weighted => ReferenceCoefficients::Weighted,
+    };
+
+    let mut builder = if let Some(formula) = &args.formula {
+        OaxacaBuilder::from_formula(df, formula, &args.group, &args.reference)?
+    } else {
         let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
-        let quantiles = args
-            .quantiles
-            .unwrap_or_else(|| vec![0.1, 0.25, 0.5, 0.75, 0.9]);
         let categorical_predictors: Vec<&str> = args
             .categorical
             .as_ref()
             .map(|v| v.iter().map(AsRef::as_ref).collect())
             .unwrap_or_else(Vec::new);
-        let mut builder =
-            QuantileDecompositionBuilder::new(df, &args.outcome, &args.group, &args.reference);
-        builder
-            .predictors(&predictors)
-            .categorical_predictors(&categorical_predictors)
-            .quantiles(&quantiles)
-            .bootstrap_reps(args.bootstrap_reps)
-            .simulations(args.simulations);
-        let results = builder.run()?;
-        results.summary();
-    } else if args.analysis_type == "akm" {
-        use oaxaca_blinder::AkmBuilder;
-        let worker_col = args
-            .worker_id
-            .ok_or("Worker ID is required for AKM analysis")?;
-        let firm_col = args
-            .firm_id
-            .ok_or("Firm ID is required for AKM analysis")?;
-        let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
-        let builder =
-            AkmBuilder::new(df, &args.outcome, &worker_col, &firm_col).controls(&predictors);
-        let results = builder
-            .run()
-            .map_err(|e| format!("AKM estimation failed: {:?}", e))?;
-        println!("AKM Estimation Results");
-        println!("Method: Alternating Projections (MAP) on Largest Connected Set");
-        println!("----------------------");
-        println!("R-squared: {:.4}", results.r2);
-        println!("Beta Coefficients:");
-        for (i, name) in args.predictors.iter().enumerate() {
-            if i < results.beta.len() {
-                println!("  {}: {:.4}", name, results.beta[i]);
-            }
-        }
-    } else if args.analysis_type == "match" {
-        use oaxaca_blinder::MatchingEngine;
-        let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
-        let engine = MatchingEngine::new(df, &args.group, &args.outcome, &predictors);
-        let weights = if args.matching_method == "psm" {
-            engine
-                .match_psm(args.k_neighbors)
-                .map_err(|e| format!("Matching failed: {:?}", e))?
+        let mut b = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference);
+        b.predictors(&predictors)
+            .categorical_predictors(&categorical_predictors);
+        b
+    };
+
+    builder
+        .bootstrap_reps(args.bootstrap_reps)
+        .reference_coefficients(reference_coeffs);
+
+    if let Some(weights) = &args.weights {
+        builder.weights(weights);
+    }
+
+    if let Some(sel_outcome) = &args.selection_outcome {
+        if let Some(sel_predictors) = &args.selection_predictors {
+            let sel_preds_refs: Vec<&str> = sel_predictors.iter().map(AsRef::as_ref).collect();
+            builder.heckman_selection(sel_outcome, &sel_preds_refs);
         } else {
-            let use_mahalanobis = args.matching_method == "mahalanobis";
-            engine
-                .run_matching(args.k_neighbors, use_mahalanobis)
-                .map_err(|e| format!("Matching failed: {:?}", e))?
-        };
-        if let Some(path) = args.output_json {
-            let json = serde_json::to_string(&weights)?;
-            std::fs::write(path, json)?;
-        } else {
-            println!("Matching completed. Generated {} weights.", weights.len());
-            println!(
-                "First 10 weights: {:?}",
-                weights.iter().take(10).collect::<Vec<_>>()
+            return Err(
+                "Selection predictors must be provided if selection outcome is specified".into(),
             );
         }
-    } else {
-        return Err(format!("Unknown analysis type: {}", args.analysis_type).into());
+    }
+
+    let results = builder.run()?;
+    results.summary();
+
+    if let Some(path) = &args.output_json {
+        let json = results
+            .to_json()
+            .map_err(|e| format!("Failed to serialize to JSON: {}", e))?;
+        std::fs::write(path, json)?;
+    }
+
+    if let Some(path) = &args.output_markdown {
+        let md = results.to_markdown();
+        std::fs::write(path, md)?;
     }
     Ok(())
+}
+
+fn run_quantile_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>> {
+    let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
+    let quantiles = args
+        .quantiles
+        .clone()
+        .unwrap_or_else(|| vec![0.1, 0.25, 0.5, 0.75, 0.9]);
+    let categorical_predictors: Vec<&str> = args
+        .categorical
+        .as_ref()
+        .map(|v| v.iter().map(AsRef::as_ref).collect())
+        .unwrap_or_else(Vec::new);
+
+    let mut builder =
+        QuantileDecompositionBuilder::new(df, &args.outcome, &args.group, &args.reference);
+    builder
+        .predictors(&predictors)
+        .categorical_predictors(&categorical_predictors)
+        .quantiles(&quantiles)
+        .bootstrap_reps(args.bootstrap_reps)
+        .simulations(args.simulations);
+
+    let results = builder.run()?;
+    results.summary();
+    Ok(())
+}
+
+fn run_akm_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>> {
+    use oaxaca_blinder::AkmBuilder;
+    let worker_col = args
+        .worker_id
+        .as_ref()
+        .ok_or("Worker ID is required for AKM analysis")?;
+    let firm_col = args
+        .firm_id
+        .as_ref()
+        .ok_or("Firm ID is required for AKM analysis")?;
+    let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
+
+    let builder = AkmBuilder::new(df, &args.outcome, worker_col, firm_col).controls(&predictors);
+    let results = builder
+        .run()
+        .map_err(|e| format!("AKM estimation failed: {:?}", e))?;
+
+    println!("AKM Estimation Results");
+    println!("Method: Alternating Projections (MAP) on Largest Connected Set");
+    println!("----------------------");
+    println!("R-squared: {:.4}", results.r2);
+    println!("Beta Coefficients:");
+    for (i, name) in args.predictors.iter().enumerate() {
+        if i < results.beta.len() {
+            println!("  {}: {:.4}", name, results.beta[i]);
+        }
+    }
+    Ok(())
+}
+
+fn run_matching_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>> {
+    use oaxaca_blinder::MatchingEngine;
+    let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
+    let engine = MatchingEngine::new(df, &args.group, &args.outcome, &predictors);
+
+    let weights = if args.matching_method == "psm" {
+        engine
+            .match_psm(args.k_neighbors)
+            .map_err(|e| format!("Matching failed: {:?}", e))?
+    } else {
+        let use_mahalanobis = args.matching_method == "mahalanobis";
+        engine
+            .run_matching(args.k_neighbors, use_mahalanobis)
+            .map_err(|e| format!("Matching failed: {:?}", e))?
+    };
+
+    if let Some(path) = &args.output_json {
+        let json = serde_json::to_string(&weights)?;
+        std::fs::write(path, json)?;
+    } else {
+        println!("Matching completed. Generated {} weights.", weights.len());
+        println!(
+            "First 10 weights: {:?}",
+            weights.iter().take(10).collect::<Vec<_>>()
+        );
+    }
+    Ok(())
+}
+
+use askama::Template;
+use oaxaca_blinder::ComponentResult;
+
+#[derive(Template)]
+#[template(path = "report.html")]
+struct ReportTemplate {
+    n_a: usize,
+    n_b: usize,
+    total_gap: f64,
+    two_fold: Vec<ComponentResult>,
+    explained: Vec<ComponentResult>,
+    unexplained: Vec<ComponentResult>,
 }
 
 fn run_report(args: ReportArgs) -> Result<(), Box<dyn Error>> {
@@ -341,36 +345,26 @@ fn run_report(args: ReportArgs) -> Result<(), Box<dyn Error>> {
         .predictors(&predictors)
         .categorical_predictors(&categorical_predictors)
         .run()?;
-    let summary = results.get_summary_table();
-    let detailed = results.get_detailed_table();
-    let overall_data = summary
-        .into_iter()
-        .map(|(name, values)| OverallRow {
-            name: name.clone(),
-            coefficient: *values.estimate(),
-            std_error: *values.std_err(),
-            t_stat: *values.t_stat(),
-            p_value: *values.p_value(),
-        })
-        .collect();
-    let detailed_data = detailed
-        .into_iter()
-        .map(|(variable, explained, unexplained)| DetailedRow {
-            variable,
-            explained,
-            unexplained,
-        })
-        .collect();
-    let report_data = ReportData {
-        total_gap: format!("{:.4}", results.total_gap()),
-        explained_gap: format!("{:.4}", results.explained().estimate()),
-        unexplained_gap: format!("{:.4}", results.unexplained().estimate()),
-        overall: overall_data,
-        detailed: detailed_data,
+
+    let two_fold = results.two_fold().aggregate().clone();
+    let explained = results.two_fold().detailed_explained().clone();
+    let unexplained = results.two_fold().detailed_unexplained().clone();
+
+    let template = ReportTemplate {
+        n_a: *results.n_a(),
+        n_b: *results.n_b(),
+        total_gap: *results.total_gap(),
+        two_fold,
+        explained,
+        unexplained,
     };
-    let html = report_data.render()?;
+
+    let html = template.render()?;
     std::fs::write(&args.output, html)?;
-    println!("Report successfully generated at: {}", args.output.display());
+    println!(
+        "Report successfully generated at: {}",
+        args.output.display()
+    );
     Ok(())
 }
 

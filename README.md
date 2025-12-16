@@ -5,6 +5,21 @@
 
 A high-performance Rust library for performing Oaxaca-Blinder decomposition, designed for economists, data scientists, and HR analysts. It decomposes the gap in an outcome variable (like wage) between two groups into "explained" (characteristics) and "unexplained" (discrimination/coefficients) components.
 
+### Python Bindings
+
+The library includes Python bindings exposed via `pyo3`.
+
+**Note for Python 3.13+ users:**
+If you are building from source on Python 3.13 or newer, you may need to enable ABI3 forward compatibility if you encounter build errors. We have enabled this via `.cargo/config.toml` for development, but for distribution builds, ensure:
+```bash
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+```
+
+To build and install the Python package:
+```bash
+maturin develop --features python
+```
+The Python API supports standard Oaxaca-Blinder decomposition, Quantile decomposition (RIF-Regression), and AKM estimation.
 Beyond standard decomposition, it supports **Quantile Decomposition (RIF & Machado-Mata)**, **AKM (Abowd-Kramarz-Margolis) Models**, **Propensity Score Matching**, **DFL Reweighting**, and **Budget Optimization** for policy simulation.
 
 <details>
@@ -17,7 +32,8 @@ Beyond standard decomposition, it supports **Quantile Decomposition (RIF & Macha
 | **Quantile Decomposition (RIF Regression)** | ✅ |
 | **Categorical Normalization (Yun)** | ✅ |
 | **Bootstrapped Standard Errors** | ✅ |
-| **Budget Optimization Solver** | ✅ |
+| **Budget Optimization ("Cheapest Fix")** | ✅ |
+| **Wage Scale Design (Grade/Step)** | ✅ |
 | **JMP Decomposition (Time Series)** | ✅ |
 | **DFL Reweighting (Counterfactuals)** | ✅ |
 | **Sample Weights** | ✅  |
@@ -90,6 +106,18 @@ oaxaca-cli --data wage.csv --outcome wage --group gender --reference F \
 oaxaca-cli --data wage.csv ... --output-json results.json --output-markdown report.md
 ```
 
+**Generate HTML Report:**
+```bash
+oaxaca-cli report \
+  --data wage.csv \
+  --outcome wage \
+  --group gender \
+  --reference F \
+  --predictors education,experience \
+  --categorical sector \
+  --output report.html
+```
+
 Supports both `--analysis-type mean` (default) and `--analysis-type quantile`.
 
 </details>
@@ -132,21 +160,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Python Example
 
-```python
-import oaxaca_blinder
 
-results = oaxaca_blinder.decompose_from_csv(
-    "wage.csv",
+
+```python
+import polars as pl
+from oaxaca_blinder import OaxacaBlinder
+
+# Load data with Polars
+df = pl.read_csv("wage.csv")
+
+# Initialize the Estimator
+model = OaxacaBlinder(
+    dataframe=df,
     outcome="wage",
-    predictors=["education", "experience"],
-    categorical_predictors=["sector"],
     group="gender",
     reference_group="F",
-    bootstrap_reps=100
+    predictors=["education", "experience"],
+    categorical_predictors=["sector"]
 )
 
-print(f"Total Gap: {results.total_gap}")
-print(f"Unexplained: {results.unexplained}")
+# Run Mean Decomposition
+results = model.fit()
+
+print(f"Total Gap: {results.total_gap:.4f}")
+print(f"Explained: {results.two_fold.aggregate.explained.estimate:.4f}")
+print(f"Unexplained: {results.two_fold.aggregate.unexplained.estimate:.4f}")
+
+# Run Quantile Decomposition (RIF)
+q_results = model.fit_quantile(0.9)
+print(f"90th Percentile Gap: {q_results.total_gap:.4f}")
+
+# Run Budget Optimization
+# "How do we close the gap to 0 with a $100,000 budget?"
+adjustments = model.optimize_budget(budget=100000.0, target_gap=0.0)
 ```
 
 </details>
@@ -169,6 +215,26 @@ let adjustments = results.optimize_budget(200_000.0, 0.05);
 for adj in adjustments {
     println!("Give ${:.2} raise to employee #{}", adj.adjustment, adj.index);
 }
+```
+
+</details>
+
+<details>
+<summary><strong>📐 Policy Simulation: Wage Scale Design</strong></summary>
+
+**"The Structural Fix"**
+
+Sometimes, you can't just give individual raises. You need to redesign the entire pay scale (Grades & Steps) to be fair, subject to budget constraints.
+
+This optimization engine finds the optimal `min_step_diff` (increment between steps) and `min_grade_diff` (increment between grades) to minimize the total cost while ensuring no current employee takes a pay cut.
+
+```rust
+use optimization_engine::WageScaleProblem;
+
+let problem = WageScaleProblem::new(dataframe, budget, grades, steps, min_wage);
+
+// Solves for optimal structural parameters
+let solution = problem.solve()?;
 ```
 
 </details>
@@ -393,6 +459,38 @@ PSM estimates the Average Treatment Effect on the Treated (ATT) by matching trea
 -   $\Psi(x)$: The weight applied to each observation in Group B.
 
 This allows for visual comparison of the "explained" gap across the entire distribution (e.g., via Kernel Density Estimation).
+
+</details>
+
+<details>
+<summary><strong>Deep Dive: Heckman Correction (Selection Bias)</strong></summary>
+
+Wage data is often observed only for those who are employed. If employment status is not random—for instance, if highly educated people are more likely to work—standard OLS decomposition will be biased (Selection Bias).
+
+The **Heckman Two-Step Correction** addresses this:
+
+1.  **Selection Equation (Probit)**: Estimates the probability of employment ($Z\gamma$) and calculates the **Inverse Mills Ratio** ($\lambda$).
+2.  **Outcome Equation (OLS)**: Includes $\lambda$ as an additional regressor to correct for the selection bias.
+
+<div align="center">
+  <img src="https://latex.codecogs.com/svg.image?y = X\beta + \rho\sigma_u\lambda(Z\gamma) + \epsilon" alt="Heckman Equation" />
+</div>
+
+### Rust Example
+
+```rust
+// Requires a selection variable (e.g., "employed") and predictors
+builder.heckman_selection("employed", &["age", "education", "marital_status"]);
+```
+
+### CLI Example
+
+```bash
+oaxaca-cli --data wage.csv --outcome wage --group gender --reference F \
+  --predictors education experience \
+  --selection-outcome employed \
+  --selection-predictors age education marital_status
+```
 
 </details>
 
