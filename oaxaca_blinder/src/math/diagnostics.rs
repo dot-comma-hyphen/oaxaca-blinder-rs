@@ -1,8 +1,8 @@
 //! Variance Inflation Factor (VIF) diagnostic function.
-use polars::prelude::*;
-use nalgebra::{DMatrix, DVector};
-use crate::OaxacaError;
 use crate::math::ols::ols;
+use crate::OaxacaError;
+use nalgebra::{DMatrix, DVector};
+use polars::prelude::*;
 
 /// Represents the result of a VIF calculation for a single variable.
 #[derive(Debug, PartialEq)]
@@ -38,7 +38,11 @@ pub fn calculate_vif(
 
     for p in predictor_names {
         let y_series = df.column(p)?;
-        let y_vec: Vec<f64> = y_series.f64()?.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
+        let y_vec: Vec<f64> = y_series
+            .f64()?
+            .into_iter()
+            .map(|opt| opt.unwrap_or(0.0))
+            .collect();
         let y = DVector::from_vec(y_vec);
 
         let other_predictors: Vec<String> = predictor_names
@@ -51,7 +55,7 @@ pub fn calculate_vif(
         let mut x_df_with_intercept = x_df.clone();
         let intercept = Series::new("intercept".into(), vec![1.0; x_df.height()]);
         x_df_with_intercept.with_column(intercept)?;
-        
+
         let x_matrix_ndarray = x_df_with_intercept.to_ndarray::<Float64Type>(IndexOrder::C)?;
         let x_matrix = DMatrix::from_row_slice(
             x_df_with_intercept.height(),
@@ -70,7 +74,7 @@ pub fn calculate_vif(
             }
             Err(e) => return Err(e),
         };
-        
+
         let y_hat = &x_matrix * &ols_result.coefficients;
         let y_mean = y.mean();
         let y_mean_vec = DVector::from_element(y.nrows(), y_mean);
@@ -117,11 +121,7 @@ mod tests {
         )
         .unwrap();
 
-        let predictor_names = vec![
-            "x1".to_string(),
-            "x2".to_string(),
-            "x3".to_string(),
-        ];
+        let predictor_names = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
 
         let vif_results = calculate_vif(&df, &predictor_names).unwrap();
 
@@ -149,11 +149,7 @@ mod tests {
         )
         .unwrap();
 
-        let predictor_names = vec![
-            "x1".to_string(),
-            "x2".to_string(),
-            "x3".to_string(),
-        ];
+        let predictor_names = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
 
         let vif_results = calculate_vif(&df, &predictor_names).unwrap();
 

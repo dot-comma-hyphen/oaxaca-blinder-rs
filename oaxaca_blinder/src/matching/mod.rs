@@ -1,3 +1,3 @@
 pub mod distance;
-pub mod logistic;
 pub mod engine;
+pub mod logistic;

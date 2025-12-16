@@ -1,5 +1,5 @@
-use polars::prelude::*;
 use oaxaca_blinder::OaxacaBuilder;
+use polars::prelude::*;
 
 #[test]
 fn test_formula_interface() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,12 +11,17 @@ fn test_formula_interface() -> Result<(), Box<dyn std::error::Error>> {
         "sector" => &["A", "B", "A", "B", "A", "B", "B", "A", "B", "A", "B", "A"]
     )?;
 
-    let mut builder = OaxacaBuilder::from_formula(df, "wage ~ education + experience + C(sector)", "gender", "F")?;
-    
+    let mut builder = OaxacaBuilder::from_formula(
+        df,
+        "wage ~ education + experience + C(sector)",
+        "gender",
+        "F",
+    )?;
+
     let res = builder.bootstrap_reps(0).run()?;
-    
+
     println!("Formula interface test passed!");
     println!("Total gap: {:.4}", res.total_gap());
-    
+
     Ok(())
 }

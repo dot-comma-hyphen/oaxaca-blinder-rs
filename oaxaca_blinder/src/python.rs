@@ -57,6 +57,8 @@ pub struct PyTwoFoldResults {
     detailed_explained: Vec<PyComponentResult>,
     #[pyo3(get)]
     detailed_unexplained: Vec<PyComponentResult>,
+    #[pyo3(get)]
+    detailed_selection: Vec<PyComponentResult>,
 }
 
 impl From<&TwoFoldResults> for PyTwoFoldResults {
@@ -74,6 +76,11 @@ impl From<&TwoFoldResults> for PyTwoFoldResults {
                 .collect(),
             detailed_unexplained: results
                 .detailed_unexplained()
+                .iter()
+                .map(|c| PyComponentResult { inner: c.clone() })
+                .collect(),
+            detailed_selection: results
+                .detailed_selection()
                 .iter()
                 .map(|c| PyComponentResult { inner: c.clone() })
                 .collect(),
@@ -106,6 +113,78 @@ impl From<OaxacaResults> for PyOaxacaResults {
     }
 }
 
+#[pymethods]
+impl PyOaxacaResults {
+    /// Generates a plot of the decomposition results.
+    ///
+    /// Args:
+    ///     kind (str, optional): Type of plot ('bar' or 'waterfall'). Defaults to 'bar'.
+    ///
+    /// Returns:
+    ///     matplotlib.figure.Figure: The generated figure.
+    #[pyo3(signature = (kind="bar"))]
+    fn plot(&self, py: Python, kind: &str) -> PyResult<PyObject> {
+        let plt = py.import_bound("matplotlib.pyplot")?;
+        let fig = plt.call_method0("figure")?;
+        let ax = fig.call_method0("gca")?;
+
+        let explained = self
+            .two_fold
+            .aggregate
+            .iter()
+            .find(|c| c.name() == "explained")
+            .map(|c| c.estimate())
+            .unwrap_or(0.0);
+        let unexplained = self
+            .two_fold
+            .aggregate
+            .iter()
+            .find(|c| c.name() == "unexplained")
+            .map(|c| c.estimate())
+            .unwrap_or(0.0);
+
+        // Simplified plotting logic for 'bar'
+        if kind == "bar" {
+            let labels = vec!["Explained", "Unexplained"];
+            let values = vec![explained, unexplained];
+            ax.call_method1("bar", (labels, values))?;
+            ax.call_method1("set_title", ("Oaxaca-Blinder Decomposition",))?;
+            ax.call_method1("set_ylabel", ("Gap Contribution",))?;
+        }
+
+        Ok(fig.into())
+    }
+
+    /// Interprets the results in plain English.
+    fn interpret(&self) -> String {
+        let explained = self
+            .two_fold
+            .aggregate
+            .iter()
+            .find(|c| c.name() == "explained")
+            .map(|c| c.estimate())
+            .unwrap_or(0.0);
+        let unexplained = self
+            .two_fold
+            .aggregate
+            .iter()
+            .find(|c| c.name() == "unexplained")
+            .map(|c| c.estimate())
+            .unwrap_or(0.0);
+        let total = self.total_gap;
+
+        let exp_pct = (explained / total) * 100.0;
+        let unexp_pct = (unexplained / total) * 100.0;
+
+        format!(
+            "The total gap is {:.4}. \n\
+            {:.1}% of this gap is explained by differences in endowments (observables), \
+            while {:.1}% is unexplained (coefficients/discrimination).",
+            total, exp_pct, unexp_pct
+        )
+    }
+}
+
 use crate::OaxacaBuilder;
 use polars::prelude::DataFrame;
 use pyo3_polars::PyDataFrame;
@@ -121,13 +200,15 @@ pub struct PyOaxacaBlinder {
     categorical_predictors: Vec<String>,
     bootstrap_reps: usize,
     weights: Option<String>,
+    selection_outcome: Option<String>,
+    selection_predictors: Vec<String>,
 }
 
 #[pymethods]
 impl PyOaxacaBlinder {
     #[new]
     #[pyo3(
-        signature = (dataframe, outcome, group, reference_group, predictors, categorical_predictors=Vec::new(), bootstrap_reps=100, weights=None)
+        signature = (dataframe, outcome, group, reference_group, predictors, categorical_predictors=Vec::new(), bootstrap_reps=100, weights=None, selection_outcome=None, selection_predictors=None)
     )]
     fn new(
         dataframe: PyDataFrame,
@@ -138,6 +219,8 @@ impl PyOaxacaBlinder {
         categorical_predictors: Vec<String>,
         bootstrap_reps: usize,
         weights: Option<String>,
+        selection_outcome: Option<String>,
+        selection_predictors: Option<Vec<String>>,
     ) -> Self {
         // SAFETY: Extreme version mismatch workaround.
         // We cast the pointer of the old DataFrame to the new DataFrame type.
@@ -161,6 +244,8 @@ impl PyOaxacaBlinder {
             categorical_predictors,
             bootstrap_reps,
             weights,
+            selection_outcome,
+            selection_predictors: selection_predictors.unwrap_or_default(),
         }
     }
 
@@ -225,6 +310,14 @@ impl PyOaxacaBlinder {
         if let Some(w) = &self.weights {
             builder.weights(w);
         }
+        if let Some(so) = &self.selection_outcome {
+            let sp_refs: Vec<&str> = self
+                .selection_predictors
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            builder.heckman_selection(so, &sp_refs);
+        }
         builder
     }
 }
@@ -238,7 +331,7 @@ fn run_dfl_from_csv(
     group: &str,
     reference_group: &str,
     predictors: Vec<String>,
-) -> PyResult<HashMap<String, Vec<f64>>> {
+) -> PyResult<PyDflResult> {
     use crate::run_dfl;
     use polars::prelude::*;
 
@@ -256,16 +349,48 @@ fn run_dfl_from_csv(
         PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("DFL failed: {:?}", e))
     })?;
 
-    let mut map = HashMap::new();
-    map.insert("grid".to_string(), result.grid);
-    map.insert("density_a".to_string(), result.density_a);
-    map.insert("density_b".to_string(), result.density_b);
-    map.insert(
-        "density_b_counterfactual".to_string(),
-        result.density_b_counterfactual,
-    );
+    Ok(PyDflResult {
+        grid: result.grid,
+        density_a: result.density_a,
+        density_b: result.density_b,
+        density_b_counterfactual: result.density_b_counterfactual,
+    })
+}
 
-    Ok(map)
+#[pyclass]
+struct PyDflResult {
+    #[pyo3(get)]
+    grid: Vec<f64>,
+    #[pyo3(get)]
+    density_a: Vec<f64>,
+    #[pyo3(get)]
+    density_b: Vec<f64>,
+    #[pyo3(get)]
+    density_b_counterfactual: Vec<f64>,
+}
+
+#[pymethods]
+impl PyDflResult {
+    fn plot(&self, py: Python) -> PyResult<PyObject> {
+        let plt = py.import_bound("matplotlib.pyplot")?;
+        let fig = plt.call_method0("figure")?;
+        let ax = fig.call_method0("gca")?;
+
+        ax.call_method1("plot", (self.grid.clone(), self.density_a.clone()))?; // Label A
+        ax.call_method1("plot", (self.grid.clone(), self.density_b.clone()))?; // Label B
+        ax.call_method1(
+            "plot",
+            (self.grid.clone(), self.density_b_counterfactual.clone()),
+        )?; // Label Counterfactual
+
+        ax.call_method1(
+            "legend",
+            (vec!["Group A", "Group B", "Group B (Counterfactual)"],),
+        )?;
+        ax.call_method1("set_title", ("DFL Decomposition: Density Estimates",))?;
+
+        Ok(fig.into())
+    }
 }
 
 /// Performs matching using the Matching Engine.
@@ -320,6 +445,7 @@ fn oaxaca_blinder(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(estimate_akm, m)?)?;
     m.add_function(wrap_pyfunction!(match_units, m)?)?;
     m.add_class::<PyAkmResult>()?;
+    m.add_class::<PyDflResult>()?;
     Ok(())
 }
 

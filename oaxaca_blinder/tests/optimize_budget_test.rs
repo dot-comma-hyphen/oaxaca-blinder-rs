@@ -1,5 +1,5 @@
-use polars::prelude::*;
 use oaxaca_blinder::OaxacaBuilder;
+use polars::prelude::*;
 
 #[test]
 fn test_optimize_budget() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,14 +25,14 @@ fn test_optimize_budget() -> Result<(), Box<dyn std::error::Error>> {
             "B", "B", "B", "B", "B", "B"
         ]
     )?;
-    
+
     let results = OaxacaBuilder::new(df, "wage", "group", "B")
         .predictors(&["education"])
         .run()?;
-        
+
     // Total Gap = 32 - 16 = 16.
     assert!((results.total_gap() - 16.0).abs() < 1e-9);
-    
+
     // Case 1: Small budget, large target reduction (impossible to reach target, spend all budget)
     // Target Gap 10. Required reduction 6. Total needed 6 * 6 = 36.
     // Budget 5.
@@ -41,7 +41,7 @@ fn test_optimize_budget() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(adjustments.len(), 1);
     assert!((adjustments[0].adjustment - 5.0).abs() < 1e-9);
     assert!((adjustments[0].original_residual + 5.0).abs() < 1e-9); // Residual was -5
-    
+
     // Case 2: Large budget, small target reduction (reach target)
     // Target Gap 15. Required reduction 1. Total needed 1 * 6 = 6.
     // Budget 100.
@@ -52,17 +52,17 @@ fn test_optimize_budget() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(adjustments.len(), 2);
     let total_adjustment: f64 = adjustments.iter().map(|a| a.adjustment).sum();
     assert!((total_adjustment - 6.0).abs() < 1e-9);
-    
+
     // Verify individual adjustments
     // One should be 5.0, one should be 1.0.
     let mut amounts: Vec<f64> = adjustments.iter().map(|a| a.adjustment).collect();
     amounts.sort_by(|a, b| a.partial_cmp(b).unwrap());
     assert!((amounts[0] - 1.0).abs() < 1e-9);
     assert!((amounts[1] - 5.0).abs() < 1e-9);
-    
+
     // Case 3: Budget enough to fix all negative residuals, but target gap requires less.
     // Same as Case 2.
-    
+
     // Case 4: Target gap already met.
     let adjustments = results.optimize_budget(100.0, 20.0);
     assert!(adjustments.is_empty());

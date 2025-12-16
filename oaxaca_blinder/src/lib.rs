@@ -158,6 +158,7 @@ struct SinglePassResult {
     xa_mean: DVector<f64>,
     xb_mean: DVector<f64>,
     beta_star: DVector<f64>,
+    detailed_selection: Vec<DetailedComponent>,
 }
 
 struct EstimationResult {
@@ -170,6 +171,14 @@ struct EstimationResult {
     residuals_b: DVector<f64>,
     base_coeffs_a: HashMap<String, f64>,
     base_coeffs_b: HashMap<String, f64>,
+    // Optional Heckman fields
+    selection_coeffs_a: Option<DVector<f64>>,
+    selection_coeffs_b: Option<DVector<f64>>,
+    selection_means_a: Option<DVector<f64>>,
+    selection_means_b: Option<DVector<f64>>,
+    selection_names: Option<Vec<String>>,
+    imr_delta_a: Option<f64>,
+    imr_delta_b: Option<f64>,
 }
 
 struct EstimationContext<'a> {
@@ -245,6 +254,13 @@ impl Estimator for OlsEstimator {
             residuals_b: ols_b.residuals,
             base_coeffs_a,
             base_coeffs_b,
+            selection_coeffs_a: None,
+            selection_coeffs_b: None,
+            selection_means_a: None,
+            selection_means_b: None,
+            selection_names: None,
+            imr_delta_a: None,
+            imr_delta_b: None,
         })
     }
 }
@@ -298,8 +314,20 @@ impl Estimator for HeckmanEstimator {
             residuals_b,
             base_coeffs_a: HashMap::new(),
             base_coeffs_b: HashMap::new(),
+            selection_coeffs_a: Some(res_a.selection_coeffs),
+            selection_coeffs_b: Some(res_b.selection_coeffs),
+            selection_means_a: Some(vec_to_dvec(&x_sel_a.row_mean().transpose())),
+            selection_means_b: Some(vec_to_dvec(&x_sel_b.row_mean().transpose())),
+            selection_names: Some(ctx.predictor_names.to_vec()), /* Usually selection predictors are diff from outcome, but for now assuming caller handles ordering if distinct lists used.*/
+            imr_delta_a: Some(res_a.imr_delta),
+            imr_delta_b: Some(res_b.imr_delta),
         })
     }
+}
+
+// Helper to reliably convert DVector/Slice to DVector (copy)
+fn vec_to_dvec(v: &DVector<f64>) -> DVector<f64> {
+    v.clone()
 }
 
 impl HeckmanEstimator {
@@ -789,6 +817,65 @@ impl OaxacaBuilder {
         let base_coeffs_a = result.base_coeffs_a;
         let base_coeffs_b = result.base_coeffs_b;
 
+        // Detailed Selection Decomposition (if Heckman)
+        let mut detailed_selection_components = Vec::new();
+        if let (
+            Some(gamma_a),
+            Some(gamma_b),
+            Some(z_mean_a),
+            Some(z_mean_b),
+            Some(delta_a),
+            Some(delta_b),
+            Some(sel_names),
+        ) = (
+            &result.selection_coeffs_a,
+            &result.selection_coeffs_b,
+            &result.selection_means_a,
+            &result.selection_means_b,
+            result.imr_delta_a,
+            result.imr_delta_b,
+            &result.selection_names,
+        ) {
+            // Identify theta (IMR coefficient). It's the last element of beta.
+            // But which reference group?
+            // Explained selection = theta_ref * (lambda_a - lambda_b)
+            // Approx = theta_ref * delta_ref * gamma_ref * (Z_A - Z_B)
+
+            let (theta_ref, delta_ref, gamma_ref) = match self.reference_coeffs {
+                ReferenceCoefficients::GroupA => (beta_a[beta_a.len() - 1], delta_a, gamma_a),
+                ReferenceCoefficients::GroupB => (beta_b[beta_b.len() - 1], delta_b, gamma_b),
+                _ => (beta_b[beta_b.len() - 1], delta_b, gamma_b), // Default/Simplified
+            };
+
+            // Selection names usually include intercept at 0.
+            // gamma and z_mean should align with sel_names.
+            // However, heckman_two_step probit includes intercept.
+            // Check self.selection_predictors.
+            // If Estimator logic added intercept, we need to match indices.
+            // HeckmanEstimator::prepare_selection_data adds intercept at col 0.
+
+            // We iterate through selection predictors.
+            // We assume gamma, z_mean, and sel_names are aligned including intercept.
+            // But we might want to skip intercept for "contribution"? Or include it?
+            // Usually we show variables.
+
+            // Reconstruct selection variable names: "intercept" + sel_predictors
+            let mut full_sel_names = vec!["intercept".to_string()];
+            full_sel_names.extend(self.selection_predictors.clone());
+
+            // Check dimensions
+            if gamma_ref.len() == full_sel_names.len() && z_mean_a.len() == full_sel_names.len() {
+                for (i, name) in full_sel_names.iter().enumerate() {
+                    let diff_z = z_mean_a[i] - z_mean_b[i];
+                    let contribution = theta_ref * delta_ref * gamma_ref[i] * diff_z;
+                    detailed_selection_components.push(DetailedComponent {
+                        variable_name: name.clone(),
+                        contribution,
+                    });
+                }
+            }
+        }
+
         let mut base_coeffs_star = std::collections::HashMap::new();
         let beta_star_owned: DVector<f64>;
         let beta_star: &DVector<f64> = match self.reference_coeffs {
@@ -950,6 +1037,7 @@ impl OaxacaBuilder {
             xa_mean: xa_mean.clone(),
             xb_mean: xb_mean.clone(),
             beta_star: beta_star.clone(),
+            detailed_selection: detailed_selection_components,
         })
     }
 
@@ -1262,12 +1350,20 @@ impl OaxacaBuilder {
             &process_component,
         );
 
+        let detailed_selection = self.process_detailed_components(
+            &point_estimates.detailed_selection,
+            &bootstrap_results,
+            |r| &r.detailed_selection,
+            &process_component,
+        );
+
         Ok(OaxacaResults {
             total_gap: point_estimates.total_gap,
             two_fold: TwoFoldResults {
                 aggregate: two_fold_agg,
                 detailed_explained,
                 detailed_unexplained,
+                detailed_selection,
             },
             three_fold: DecompositionDetail {
                 aggregate: three_fold_agg,
@@ -1337,6 +1433,8 @@ pub struct TwoFoldResults {
     detailed_explained: Vec<ComponentResult>,
     /// Detailed results for the unexplained component, broken down by variable.
     detailed_unexplained: Vec<ComponentResult>,
+    /// Detailed results for the selection component (Heckman only).
+    detailed_selection: Vec<ComponentResult>,
 }
 
 /// Holds all the results from the Oaxaca-Blinder decomposition.

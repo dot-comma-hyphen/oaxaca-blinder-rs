@@ -1,8 +1,8 @@
+use crate::math::ols::ols;
+use crate::math::probit::probit;
 use crate::OaxacaError;
 use nalgebra::{DMatrix, DVector};
-use crate::math::probit::probit;
-use crate::math::ols::ols;
-use statrs::distribution::{Normal, Continuous, ContinuousCDF};
+use statrs::distribution::{Continuous, ContinuousCDF, Normal};
 
 /// Represents the results of a Heckman Two-Step estimation.
 #[derive(Debug)]
@@ -15,6 +15,11 @@ pub struct HeckmanResult {
     pub imr_coeff: f64,
     /// The Inverse Mills Ratio values for the outcome sample.
     pub imr: DVector<f64>,
+    /// Mean of the Inverse Mills Ratio for the outcome sample.
+    pub imr_mean: f64,
+    /// Mean derivative of the IMR (for linearization).
+    /// delta = mean(lambda * (lambda + z*gamma))
+    pub imr_delta: f64,
 }
 
 /// Performs Heckman Two-Step estimation.
@@ -40,39 +45,62 @@ pub fn heckman_two_step(
     // 1. Probit Regression on Selection Equation
     let probit_res = probit(y_select, x_select, 100, 1e-6)?;
     let gamma = probit_res.coefficients;
-    
+
     // 2. Calculate Inverse Mills Ratio (IMR) for the selected sample
     // IMR = phi(z'gamma) / Phi(z'gamma)
     let normal = Normal::new(0.0, 1.0).unwrap();
     let z_gamma = x_select_subset * &gamma;
-    
-    let imr_vec: Vec<f64> = z_gamma.iter().map(|&zg| {
-        let phi = normal.pdf(zg);
-        let big_phi = normal.cdf(zg);
-        if big_phi < 1e-10 { 0.0 } else { phi / big_phi }
-    }).collect();
+
+    let imr_vec: Vec<f64> = z_gamma
+        .iter()
+        .map(|&zg| {
+            let phi = normal.pdf(zg);
+            let big_phi = normal.cdf(zg);
+            if big_phi < 1e-10 {
+                0.0
+            } else {
+                phi / big_phi
+            }
+        })
+        .collect();
     let imr = DVector::from_vec(imr_vec);
-    
+
     // 3. OLS on Outcome Equation with IMR
     // Augment x_outcome with IMR
     let mut x_augmented = x_outcome.clone();
     // Insert IMR as the last column
     x_augmented = x_augmented.insert_column(x_outcome.ncols(), 0.0);
     x_augmented.set_column(x_outcome.ncols(), &imr);
-    
+
     // Run OLS
     let ols_res = ols(y_outcome, &x_augmented, None)?;
-    
+
     // Extract coefficients
     let full_coeffs = ols_res.coefficients;
     let k_outcome = x_outcome.ncols();
     let outcome_coeffs = full_coeffs.rows(0, k_outcome).into_owned();
     let imr_coeff = full_coeffs[k_outcome];
-    
+
+    let imr_mean = imr.mean();
+
+    // Calculate delta for linearization: delta = mean(lambda * (lambda + z_gamma))
+    // Note: for censored sample, derivative of lambda(x) w.r.t x is -lambda(x)(lambda(x) + x)
+    // We want the factor to approximate lambda(A) - lambda(B) approx delta * gamma * (Z_A - Z_B).
+    // The derivative is negative, but typically we want the effect of Z moving lambda.
+    let zg_subset = x_select_subset * &gamma;
+    let delta_vec: Vec<f64> = imr
+        .iter()
+        .zip(zg_subset.iter())
+        .map(|(&l, &zg)| -l * (l + zg))
+        .collect();
+    let imr_delta = DVector::from_vec(delta_vec).mean();
+
     Ok(HeckmanResult {
         selection_coeffs: gamma,
         outcome_coeffs,
         imr_coeff,
         imr,
+        imr_mean,
+        imr_delta,
     })
 }

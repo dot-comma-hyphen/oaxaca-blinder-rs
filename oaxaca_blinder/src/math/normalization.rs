@@ -1,5 +1,5 @@
-use nalgebra::{DVector};
-use crate::math::ols::{OlsResult};
+use crate::math::ols::OlsResult;
+use nalgebra::DVector;
 use std::collections::HashMap;
 
 pub fn normalize_categorical_coefficients(
@@ -27,8 +27,13 @@ pub fn normalize_categorical_coefficients(
             sum_of_coeffs += ols_results.coefficients[i];
         }
 
-        let m = category_counts.get(var).cloned().unwrap_or(dummy_indices.len() + 1);
-        if m == 0 { continue; }
+        let m = category_counts
+            .get(var)
+            .cloned()
+            .unwrap_or(dummy_indices.len() + 1);
+        if m == 0 {
+            continue;
+        }
         let mean_of_coeffs = sum_of_coeffs / (m as f64);
 
         base_coeffs.insert(var.clone(), -mean_of_coeffs);
@@ -69,7 +74,11 @@ mod tests {
         let mut coeffs = DVector::from_vec(vec![10.0, 2.0, 4.0]); // Intercept, cat_B, cat_C
         let mut vcov = DMatrix::zeros(3, 3);
         let residuals = DVector::zeros(0); // Empty residuals for test
-        let mut ols_result = OlsResult { coefficients: coeffs, vcov, residuals };
+        let mut ols_result = OlsResult {
+            coefficients: coeffs,
+            vcov,
+            residuals,
+        };
 
         let predictor_names = vec![
             "intercept".to_string(),
@@ -77,10 +86,10 @@ mod tests {
             "cat_C".to_string(),
         ];
         let categorical_vars = vec!["cat".to_string()];
-        
+
         // Dummy means (not used in the new correct logic, but required by signature)
-        let x_mean = DVector::from_vec(vec![1.0, 0.3, 0.5]); 
-        
+        let x_mean = DVector::from_vec(vec![1.0, 0.3, 0.5]);
+
         let mut category_counts = HashMap::new();
         category_counts.insert("cat".to_string(), 3);
 

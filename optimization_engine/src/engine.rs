@@ -1,7 +1,7 @@
-use good_lp::{Variable, Expression, SolverModel, Solution, ResolutionError, variable};
+use anyhow::{Error, Result};
+use good_lp::{variable, Expression, ResolutionError, Solution, SolverModel, Variable};
 use polars::prelude::*;
 use std::collections::HashMap;
-use anyhow::{Result, Error};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -24,7 +24,11 @@ pub trait ProblemDefinition {
     fn define_objective(&self, variables: &VariableMap) -> Expression;
 
     /// Define constraints and add them to the problem.
-    fn define_constraints<T: SolverModel>(&self, variables: &VariableMap, problem: &mut T) -> Result<()>;
+    fn define_constraints<T: SolverModel>(
+        &self,
+        variables: &VariableMap,
+        problem: &mut T,
+    ) -> Result<()>;
 }
 
 pub struct OptimizationEngine;
@@ -57,7 +61,8 @@ impl OptimizationEngine {
         // This means `highs` is a module?
         // In `good_lp` 1.8, `solvers::highs` is a module, the function is `good_lp::solvers::highs::highs`.
 
-        let mut model = vars.minimise(objective_expr)
+        let mut model = vars
+            .minimise(objective_expr)
             .using(good_lp::solvers::highs::highs);
 
         problem_def.define_constraints(&variable_map, &mut model)?;
@@ -66,7 +71,7 @@ impl OptimizationEngine {
 
         let mut result_map = HashMap::new();
         for (name, var) in &variable_map {
-             result_map.insert(name.clone(), solution.value(*var));
+            result_map.insert(name.clone(), solution.value(*var));
         }
 
         // Re-evaluate objective.

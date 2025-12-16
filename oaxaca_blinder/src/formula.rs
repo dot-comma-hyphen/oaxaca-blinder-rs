@@ -20,7 +20,9 @@ impl Formula {
 
         let outcome = parts[0].trim().to_string();
         if outcome.is_empty() {
-            return Err(OaxacaError::InvalidGroupVariable("Outcome variable is missing".to_string()));
+            return Err(OaxacaError::InvalidGroupVariable(
+                "Outcome variable is missing".to_string(),
+            ));
         }
 
         let predictors_part = parts[1];
@@ -45,7 +47,9 @@ impl Formula {
         }
 
         if predictors.is_empty() && categorical_predictors.is_empty() {
-             return Err(OaxacaError::InvalidGroupVariable("No predictors specified".to_string()));
+            return Err(OaxacaError::InvalidGroupVariable(
+                "No predictors specified".to_string(),
+            ));
         }
 
         Ok(Formula {

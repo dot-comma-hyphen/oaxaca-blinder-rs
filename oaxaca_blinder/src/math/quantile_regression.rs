@@ -19,11 +19,7 @@ use ndarray::{Array1, Array2};
 ///
 /// A `Result` containing a `Vec<f64>` of the estimated coefficients `β`,
 /// or an error string if the problem could not be solved.
-pub fn solve_qr(
-    x_data: &Array2<f64>,
-    y_data: &Array1<f64>,
-    tau: f64,
-) -> Result<Vec<f64>, String> {
+pub fn solve_qr(x_data: &Array2<f64>, y_data: &Array1<f64>, tau: f64) -> Result<Vec<f64>, String> {
     let (n_obs, n_features) = x_data.dim();
     if y_data.len() != n_obs {
         return Err(
@@ -124,13 +120,7 @@ mod tests {
     fn test_solve_qr_median() {
         // Simple dataset
         let y = array![1.0, 2.0, 3.0, 4.0, 5.0];
-        let x = array![
-            [1.0, 1.0],
-            [1.0, 2.0],
-            [1.0, 3.0],
-            [1.0, 4.0],
-            [1.0, 5.0]
-        ];
+        let x = array![[1.0, 1.0], [1.0, 2.0], [1.0, 3.0], [1.0, 4.0], [1.0, 5.0]];
         let tau = 0.5;
 
         // For perfectly linear data, the QR line should be the same for all quantiles.
@@ -148,13 +138,7 @@ mod tests {
     fn test_solve_qr_quartile() {
         // Simple dataset
         let y = array![1.0, 2.0, 3.0, 4.0, 5.0];
-        let x = array![
-            [1.0, 1.0],
-            [1.0, 2.0],
-            [1.0, 3.0],
-            [1.0, 4.0],
-            [1.0, 5.0]
-        ];
+        let x = array![[1.0, 1.0], [1.0, 2.0], [1.0, 3.0], [1.0, 4.0], [1.0, 5.0]];
         let tau = 0.25;
 
         // For perfectly linear data, the QR line should be the same for all quantiles.

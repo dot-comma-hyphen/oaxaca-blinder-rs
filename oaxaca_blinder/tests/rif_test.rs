@@ -1,12 +1,12 @@
-use polars::prelude::*;
 use oaxaca_blinder::OaxacaBuilder;
+use polars::prelude::*;
 
 #[test]
 fn test_rif_decomposition() -> Result<(), Box<dyn std::error::Error>> {
     // Create a dataset where Group B has higher variance than Group A
     // Group A (M): Mean ~22, High Variance
     // Group B (F): Mean ~22, Low Variance
-    
+
     let mut wage = Vec::new();
     let mut group = Vec::new();
     let mut education = Vec::new();
@@ -43,9 +43,9 @@ fn test_rif_decomposition() -> Result<(), Box<dyn std::error::Error>> {
     // Group M (A) should be significantly higher than Group F (B)
     // because M has higher variance and thus a higher upper tail.
     // Gap = Y_A - Y_B
-    
+
     println!("Total Gap at Q90: {}", results.total_gap());
-    
+
     // Gap should be positive
     assert!(*results.total_gap() > 0.0);
 

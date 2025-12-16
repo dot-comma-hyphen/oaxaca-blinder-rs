@@ -1,6 +1,6 @@
+use nalgebra::{DMatrix, DVector};
 use polars::prelude::*;
 use std::collections::{HashMap, HashSet};
-use nalgebra::{DMatrix, DVector};
 
 /// Error type for AKM operations
 #[derive(Debug)]
@@ -12,7 +12,9 @@ pub enum AkmError {
 }
 
 impl From<PolarsError> for AkmError {
-    fn from(err: PolarsError) -> Self { AkmError::PolarsError(err) }
+    fn from(err: PolarsError) -> Self {
+        AkmError::PolarsError(err)
+    }
 }
 
 impl std::fmt::Display for AkmError {
@@ -21,7 +23,11 @@ impl std::fmt::Display for AkmError {
             AkmError::PolarsError(e) => write!(f, "Polars error: {}", e),
             AkmError::ColumnNotFound(s) => write!(f, "Column not found: {}", s),
             AkmError::NotEnoughData(s) => write!(f, "Not enough data: {}", s),
-            AkmError::ConvergenceFailed(s) => write!(f, "Convergence failed: {}. Try increasing max_iters or checking for collinearity.", s),
+            AkmError::ConvergenceFailed(s) => write!(
+                f,
+                "Convergence failed: {}. Try increasing max_iters or checking for collinearity.",
+                s
+            ),
         }
     }
 }
@@ -78,14 +84,25 @@ impl AkmBuilder {
 
     pub fn run(self) -> Result<AkmResult, AkmError> {
         // 1. Find Largest Connected Set
-        let df_connected = find_largest_connected_set(&self.dataframe, &self.worker_col, &self.firm_col)?;
-        
+        let df_connected =
+            find_largest_connected_set(&self.dataframe, &self.worker_col, &self.firm_col)?;
+
         if df_connected.height() == 0 {
-            return Err(AkmError::NotEnoughData("No connected set found".to_string()));
+            return Err(AkmError::NotEnoughData(
+                "No connected set found".to_string(),
+            ));
         }
 
         // 2. Solve AKM
-        solve_akm(df_connected, &self.outcome, &self.worker_col, &self.firm_col, &self.controls, self.tolerance, self.max_iters)
+        solve_akm(
+            df_connected,
+            &self.outcome,
+            &self.worker_col,
+            &self.firm_col,
+            &self.controls,
+            self.tolerance,
+            self.max_iters,
+        )
     }
 }
 
@@ -127,33 +144,45 @@ impl UnionFind {
 }
 
 /// Finds the largest connected set of workers and firms.
-fn find_largest_connected_set(df: &DataFrame, worker_col: &str, firm_col: &str) -> Result<DataFrame, AkmError> {
+fn find_largest_connected_set(
+    df: &DataFrame,
+    worker_col: &str,
+    firm_col: &str,
+) -> Result<DataFrame, AkmError> {
     let workers = df.column(worker_col)?.cast(&DataType::String)?;
     let firms = df.column(firm_col)?.cast(&DataType::String)?;
-    
-    let unique_workers = workers.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
-    let unique_firms = firms.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
-    
+
+    let unique_workers = workers.unique()?.sort(SortOptions {
+        descending: false,
+        nulls_last: false,
+        ..Default::default()
+    })?;
+    let unique_firms = firms.unique()?.sort(SortOptions {
+        descending: false,
+        nulls_last: false,
+        ..Default::default()
+    })?;
+
     let n_workers = unique_workers.len();
     let n_firms = unique_firms.len();
-    
+
     // Map IDs to integers
     let mut worker_map = HashMap::new();
     for (i, w) in unique_workers.str()?.into_iter().flatten().enumerate() {
         worker_map.insert(w, i);
     }
-    
+
     let mut firm_map = HashMap::new();
     for (i, f) in unique_firms.str()?.into_iter().flatten().enumerate() {
         firm_map.insert(f, i + n_workers); // Offset firm indices
     }
-    
+
     let mut uf = UnionFind::new(n_workers + n_firms);
-    
+
     // Iterate through edges and union
     let worker_iter = workers.str()?.into_iter();
     let firm_iter = firms.str()?.into_iter();
-    
+
     for (w_opt, f_opt) in worker_iter.zip(firm_iter) {
         if let (Some(w), Some(f)) = (w_opt, f_opt) {
             if let (Some(&w_idx), Some(&f_idx)) = (worker_map.get(w), firm_map.get(f)) {
@@ -161,19 +190,20 @@ fn find_largest_connected_set(df: &DataFrame, worker_col: &str, firm_col: &str) 
             }
         }
     }
-    
+
     // Find largest component
     let mut component_sizes = HashMap::new();
     for i in 0..(n_workers + n_firms) {
         let root = uf.find(i);
         *component_sizes.entry(root).or_insert(0) += 1;
     }
-    
-    let largest_component_root = component_sizes.iter()
+
+    let largest_component_root = component_sizes
+        .iter()
         .max_by_key(|&(_, size)| size)
         .map(|(&root, _)| root)
         .ok_or(AkmError::NotEnoughData("Empty graph".to_string()))?;
-        
+
     // Identify valid workers and firms first
     let mut valid_nodes = HashSet::new();
     for i in 0..(n_workers + n_firms) {
@@ -181,8 +211,11 @@ fn find_largest_connected_set(df: &DataFrame, worker_col: &str, firm_col: &str) 
             valid_nodes.insert(i);
         }
     }
-    
-    let mask: BooleanChunked = workers.str()?.into_iter().zip(firms.str()?.into_iter())
+
+    let mask: BooleanChunked = workers
+        .str()?
+        .into_iter()
+        .zip(firms.str()?.into_iter())
         .map(|(w_opt, f_opt)| {
             if let (Some(w), Some(f)) = (w_opt, f_opt) {
                 if let (Some(&w_idx), Some(&f_idx)) = (worker_map.get(w), firm_map.get(f)) {
@@ -192,7 +225,7 @@ fn find_largest_connected_set(df: &DataFrame, worker_col: &str, firm_col: &str) 
             Some(false)
         })
         .collect();
-        
+
     df.filter(&mask).map_err(AkmError::from)
 }
 
@@ -203,82 +236,112 @@ fn solve_akm(
     firm_col: &str,
     controls: &[String],
     tolerance: f64,
-    max_iters: usize
+    max_iters: usize,
 ) -> Result<AkmResult, AkmError> {
     // 1. Prepare Data
     let workers = df.column(worker_col)?.cast(&DataType::String)?;
     let firms = df.column(firm_col)?.cast(&DataType::String)?;
-    
-    let unique_workers = workers.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
-    let unique_firms = firms.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
-    
+
+    let unique_workers = workers.unique()?.sort(SortOptions {
+        descending: false,
+        nulls_last: false,
+        ..Default::default()
+    })?;
+    let unique_firms = firms.unique()?.sort(SortOptions {
+        descending: false,
+        nulls_last: false,
+        ..Default::default()
+    })?;
+
     let n_workers = unique_workers.len();
     let n_firms = unique_firms.len();
-    
+
     let mut worker_map = HashMap::new();
     for (i, w) in unique_workers.str()?.into_iter().flatten().enumerate() {
         worker_map.insert(w.to_string(), i as u32);
     }
-    
+
     let mut firm_map = HashMap::new();
     for (i, f) in unique_firms.str()?.into_iter().flatten().enumerate() {
         firm_map.insert(f.to_string(), i as u32);
     }
-    
-    let worker_indices: Vec<u32> = workers.str()?.into_iter()
+
+    let worker_indices: Vec<u32> = workers
+        .str()?
+        .into_iter()
         .map(|opt| worker_map.get(opt.unwrap()).unwrap().clone())
         .collect();
-        
-    let firm_indices: Vec<u32> = firms.str()?.into_iter()
+
+    let firm_indices: Vec<u32> = firms
+        .str()?
+        .into_iter()
         .map(|opt| firm_map.get(opt.unwrap()).unwrap().clone())
         .collect();
-        
+
     let y_series = df.column(outcome)?.f64()?;
     let mut y: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
-    
+
     // Prepare X (controls)
     let mut x_vectors: Vec<Vec<f64>> = Vec::new();
     for col in controls {
         let s = df.column(col)?.f64()?;
         x_vectors.push(s.into_iter().map(|opt| opt.unwrap_or(0.0)).collect());
     }
-    
+
     // 2. Demean Y and X (FWL Theorem)
     // We need to demean Y and each column of X to remove worker and firm fixed effects
-    
+
     let mut y_resid = y.clone();
-    demean_vector(&mut y_resid, &worker_indices, &firm_indices, n_workers, n_firms, tolerance, max_iters)?;
-    
+    demean_vector(
+        &mut y_resid,
+        &worker_indices,
+        &firm_indices,
+        n_workers,
+        n_firms,
+        tolerance,
+        max_iters,
+    )?;
+
     let mut x_resids = x_vectors.clone();
     for x_vec in &mut x_resids {
-        demean_vector(x_vec, &worker_indices, &firm_indices, n_workers, n_firms, tolerance, max_iters)?;
+        demean_vector(
+            x_vec,
+            &worker_indices,
+            &firm_indices,
+            n_workers,
+            n_firms,
+            tolerance,
+            max_iters,
+        )?;
     }
-    
+
     // 3. Run OLS: y_resid ~ x_resids
     // Construct design matrix for OLS
     let n_obs = y.len();
     let n_controls = controls.len();
-    
+
     let beta = if n_controls > 0 {
         let x_mat = DMatrix::from_fn(n_obs, n_controls, |r, c| x_resids[c][r]);
         let y_vec = DVector::from_column_slice(&y_resid);
-        
+
         // OLS: (X'X)^-1 X'Y
         let xt = x_mat.transpose();
         let xtx = &xt * &x_mat;
         let xty = &xt * &y_vec;
-        
-        let chol = nalgebra::linalg::Cholesky::new(xtx).ok_or(AkmError::ConvergenceFailed("OLS design matrix is singular".to_string()))?;
+
+        let chol = nalgebra::linalg::Cholesky::new(xtx).ok_or(AkmError::ConvergenceFailed(
+            "OLS design matrix is singular".to_string(),
+        ))?;
         chol.solve(&xty)
     } else {
         DVector::zeros(0)
     };
-    
+
     // 4. Recover Fixed Effects
     // R = Y - X * beta
     // R = alpha + psi + epsilon
     // We solve for alpha and psi using alternating projections
-    
+
     let mut r = y.clone();
     if n_controls > 0 {
         for i in 0..n_obs {
@@ -287,15 +350,23 @@ fn solve_akm(
             }
         }
     }
-    
-    let (alpha, psi) = recover_fe(&r, &worker_indices, &firm_indices, n_workers, n_firms, tolerance, max_iters)?;
-    
+
+    let (alpha, psi) = recover_fe(
+        &r,
+        &worker_indices,
+        &firm_indices,
+        n_workers,
+        n_firms,
+        tolerance,
+        max_iters,
+    )?;
+
     // 5. Calculate R2
     // TSS = sum((Y - mean(Y))^2)
     // RSS = sum((Y - X*beta - alpha - psi)^2)
     let y_mean = y.iter().sum::<f64>() / n_obs as f64;
     let tss: f64 = y.iter().map(|&val| (val - y_mean).powi(2)).sum();
-    
+
     let mut rss = 0.0;
     for i in 0..n_obs {
         let w_idx = worker_indices[i] as usize;
@@ -311,23 +382,35 @@ fn solve_akm(
         };
         rss += (y[i] - pred).powi(2);
     }
-    
+
     let r2 = 1.0 - (rss / tss);
-    
+
     // 6. Format Output
-    let worker_ids: Vec<String> = unique_workers.str()?.into_iter().flatten().map(|s| s.to_string()).collect();
-    let firm_ids: Vec<String> = unique_firms.str()?.into_iter().flatten().map(|s| s.to_string()).collect();
-    
+    let worker_ids: Vec<String> = unique_workers
+        .str()?
+        .into_iter()
+        .flatten()
+        .map(|s| s.to_string())
+        .collect();
+    let firm_ids: Vec<String> = unique_firms
+        .str()?
+        .into_iter()
+        .flatten()
+        .map(|s| s.to_string())
+        .collect();
+
     let worker_effects_df = df!(
         worker_col => worker_ids,
         "effect" => alpha
-    ).map_err(AkmError::from)?;
-    
+    )
+    .map_err(AkmError::from)?;
+
     let firm_effects_df = df!(
         firm_col => firm_ids,
         "effect" => psi
-    ).map_err(AkmError::from)?;
-    
+    )
+    .map_err(AkmError::from)?;
+
     Ok(AkmResult {
         beta,
         worker_effects: worker_effects_df,
@@ -344,63 +427,67 @@ fn demean_vector(
     n_workers: usize,
     n_firms: usize,
     tolerance: f64,
-    max_iters: usize
+    max_iters: usize,
 ) -> Result<(), AkmError> {
     let n_obs = vec.len();
     let mut diff = tolerance + 1.0;
     let mut iter = 0;
-    
+
     // Pre-calculate counts for means
     let mut worker_counts = vec![0usize; n_workers];
     let mut firm_counts = vec![0usize; n_firms];
-    
-    for &idx in worker_indices { worker_counts[idx as usize] += 1; }
-    for &idx in firm_indices { firm_counts[idx as usize] += 1; }
-    
+
+    for &idx in worker_indices {
+        worker_counts[idx as usize] += 1;
+    }
+    for &idx in firm_indices {
+        firm_counts[idx as usize] += 1;
+    }
+
     while diff > tolerance && iter < max_iters {
         let prev_vec = vec.to_vec();
-        
+
         // 1. Demean by Worker
         let mut worker_sums = vec![0.0; n_workers];
         for i in 0..n_obs {
             worker_sums[worker_indices[i] as usize] += vec[i];
         }
-        
+
         for i in 0..n_obs {
             let w_idx = worker_indices[i] as usize;
             if worker_counts[w_idx] > 0 {
                 vec[i] -= worker_sums[w_idx] / worker_counts[w_idx] as f64;
             }
         }
-        
+
         // 2. Demean by Firm
         let mut firm_sums = vec![0.0; n_firms];
         for i in 0..n_obs {
             firm_sums[firm_indices[i] as usize] += vec[i];
         }
-        
+
         for i in 0..n_obs {
             let f_idx = firm_indices[i] as usize;
             if firm_counts[f_idx] > 0 {
                 vec[i] -= firm_sums[f_idx] / firm_counts[f_idx] as f64;
             }
         }
-        
+
         // Check convergence
         diff = 0.0;
         for i in 0..n_obs {
             diff += (vec[i] - prev_vec[i]).powi(2);
         }
         diff = diff.sqrt();
-        
+
         iter += 1;
     }
-    
+
     if iter >= max_iters {
         // Warning: did not converge
         // println!("Warning: MAP did not converge within {} iterations", max_iters);
     }
-    
+
     Ok(())
 }
 
@@ -412,51 +499,55 @@ fn recover_fe(
     n_workers: usize,
     n_firms: usize,
     tolerance: f64,
-    max_iters: usize
+    max_iters: usize,
 ) -> Result<(Vec<f64>, Vec<f64>), AkmError> {
     let n_obs = r.len();
     let mut alpha = vec![0.0; n_workers];
     let mut psi = vec![0.0; n_firms];
-    
+
     let mut worker_counts = vec![0usize; n_workers];
     let mut firm_counts = vec![0usize; n_firms];
-    
-    for &idx in worker_indices { worker_counts[idx as usize] += 1; }
-    for &idx in firm_indices { firm_counts[idx as usize] += 1; }
-    
+
+    for &idx in worker_indices {
+        worker_counts[idx as usize] += 1;
+    }
+    for &idx in firm_indices {
+        firm_counts[idx as usize] += 1;
+    }
+
     let mut diff = tolerance + 1.0;
     let mut iter = 0;
-    
+
     while diff > tolerance && iter < max_iters {
         let prev_alpha = alpha.clone();
         let prev_psi = psi.clone();
-        
+
         // Update Alpha: alpha_i = mean(R - psi | i)
         let mut worker_sums = vec![0.0; n_workers];
         for i in 0..n_obs {
             let f_idx = firm_indices[i] as usize;
             worker_sums[worker_indices[i] as usize] += r[i] - psi[f_idx];
         }
-        
+
         for i in 0..n_workers {
             if worker_counts[i] > 0 {
                 alpha[i] = worker_sums[i] / worker_counts[i] as f64;
             }
         }
-        
+
         // Update Psi: psi_j = mean(R - alpha | j)
         let mut firm_sums = vec![0.0; n_firms];
         for i in 0..n_obs {
             let w_idx = worker_indices[i] as usize;
             firm_sums[firm_indices[i] as usize] += r[i] - alpha[w_idx];
         }
-        
+
         for j in 0..n_firms {
             if firm_counts[j] > 0 {
                 psi[j] = firm_sums[j] / firm_counts[j] as f64;
             }
         }
-        
+
         // Normalize one firm to zero (e.g., first firm) to identify the model
         // Or mean center? Usually one reference is dropped.
         // Let's center firm effects to mean zero and absorb the constant into alpha?
@@ -466,20 +557,24 @@ fn recover_fe(
         for j in 0..n_firms {
             psi[j] -= ref_val;
         }
-        // Add ref_val to alpha to keep prediction same? 
+        // Add ref_val to alpha to keep prediction same?
         // Y = alpha + psi. If psi -> psi - c, then alpha -> alpha + c.
         for i in 0..n_workers {
             alpha[i] += ref_val;
         }
-        
+
         // Check convergence
         diff = 0.0;
-        for i in 0..n_workers { diff += (alpha[i] - prev_alpha[i]).powi(2); }
-        for j in 0..n_firms { diff += (psi[j] - prev_psi[j]).powi(2); }
+        for i in 0..n_workers {
+            diff += (alpha[i] - prev_alpha[i]).powi(2);
+        }
+        for j in 0..n_firms {
+            diff += (psi[j] - prev_psi[j]).powi(2);
+        }
         diff = diff.sqrt();
-        
+
         iter += 1;
     }
-    
+
     Ok((alpha, psi))
 }

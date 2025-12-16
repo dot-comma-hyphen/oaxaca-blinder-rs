@@ -8,7 +8,12 @@ pub fn bootstrap_stats(estimates: &[f64], _point_estimate: f64) -> (f64, f64, (f
     // Standard error is the standard deviation of the bootstrap estimates.
     let n = estimates.len() as f64;
     let mean: f64 = estimates.iter().sum::<f64>() / n;
-    let std_err = (estimates.iter().map(|&val| (val - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+    let std_err = (estimates
+        .iter()
+        .map(|&val| (val - mean).powi(2))
+        .sum::<f64>()
+        / (n - 1.0))
+        .sqrt();
 
     // p-value: Two-tailed test for H0: theta = 0
     // We calculate the proportion of bootstrap estimates that are on the opposite side of zero
@@ -16,7 +21,6 @@ pub fn bootstrap_stats(estimates: &[f64], _point_estimate: f64) -> (f64, f64, (f
     let prop_positive = estimates.iter().filter(|&&val| val >= 0.0).count() as f64 / n;
     let prop_negative = estimates.iter().filter(|&&val| val <= 0.0).count() as f64 / n;
     let p_value = (2.0 * prop_positive.min(prop_negative)).min(1.0);
-
 
     // Confidence interval using the percentile method.
     let mut sorted_estimates = estimates.to_vec();

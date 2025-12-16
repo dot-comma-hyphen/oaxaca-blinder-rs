@@ -20,10 +20,16 @@ fn test_mean_decomposition() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Oaxaca-Blinder Decomposition Results"))
+        .stdout(predicate::str::contains(
+            "Oaxaca-Blinder Decomposition Results",
+        ))
         .stdout(predicate::str::contains("Two-Fold Decomposition"))
-        .stdout(predicate::str::contains("Detailed Decomposition (Explained)"))
-        .stdout(predicate::str::contains("Detailed Decomposition (Unexplained)"));
+        .stdout(predicate::str::contains(
+            "Detailed Decomposition (Explained)",
+        ))
+        .stdout(predicate::str::contains(
+            "Detailed Decomposition (Unexplained)",
+        ));
 }
 
 #[test]
@@ -44,9 +50,9 @@ fn test_mean_decomposition_with_categorical() {
         .arg("--bootstrap-reps")
         .arg("2");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Oaxaca-Blinder Decomposition Results"));
+    cmd.assert().success().stdout(predicate::str::contains(
+        "Oaxaca-Blinder Decomposition Results",
+    ));
 }
 
 #[test]
@@ -69,9 +75,9 @@ fn test_quantile_decomposition() {
         .arg("--simulations")
         .arg("10");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Machado-Mata Quantile Decomposition Results"));
+    cmd.assert().success().stdout(predicate::str::contains(
+        "Machado-Mata Quantile Decomposition Results",
+    ));
 }
 
 #[test]

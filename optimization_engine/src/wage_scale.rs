@@ -1,7 +1,7 @@
 use crate::engine::{ProblemDefinition, VariableMap};
-use good_lp::{Expression, SolverModel, variable};
-use polars::prelude::*;
 use anyhow::Result;
+use good_lp::{variable, Expression, SolverModel};
+use polars::prelude::*;
 use std::collections::HashMap;
 
 pub struct WageScaleProblem {
@@ -50,32 +50,39 @@ impl ProblemDefinition for WageScaleProblem {
         let s_col = self.census.column("step");
 
         if let (Ok(_g_s), Ok(_s_s)) = (g_col, s_col) {
-             let df = self.census.clone().lazy()
+            let df = self
+                .census
+                .clone()
+                .lazy()
                 .group_by([col("grade"), col("step")])
                 .agg([len().alias("count")])
                 .collect();
 
-             if let Ok(counts) = df {
-                 let g_ca = counts.column("grade").unwrap().u32().unwrap();
-                 let s_ca = counts.column("step").unwrap().u32().unwrap();
-                 let c_ca = counts.column("count").unwrap().u32().unwrap();
+            if let Ok(counts) = df {
+                let g_ca = counts.column("grade").unwrap().u32().unwrap();
+                let s_ca = counts.column("step").unwrap().u32().unwrap();
+                let c_ca = counts.column("count").unwrap().u32().unwrap();
 
-                 for i in 0..counts.height() {
-                     let g = g_ca.get(i).unwrap();
-                     let s = s_ca.get(i).unwrap();
-                     let c = c_ca.get(i).unwrap() as f64;
+                for i in 0..counts.height() {
+                    let g = g_ca.get(i).unwrap();
+                    let s = s_ca.get(i).unwrap();
+                    let c = c_ca.get(i).unwrap() as f64;
 
-                     if let Some(var) = variables.get(&format!("step_{}_{}", g, s)) {
-                         total_cost += *var * c;
-                     }
-                 }
-             }
+                    if let Some(var) = variables.get(&format!("step_{}_{}", g, s)) {
+                        total_cost += *var * c;
+                    }
+                }
+            }
         }
 
         total_cost
     }
 
-    fn define_constraints<T: SolverModel>(&self, variables: &VariableMap, problem: &mut T) -> Result<()> {
+    fn define_constraints<T: SolverModel>(
+        &self,
+        variables: &VariableMap,
+        problem: &mut T,
+    ) -> Result<()> {
         // 1. Structure Constraints
         for g in 1..=self.grades {
             for s in 1..self.steps {
@@ -96,7 +103,10 @@ impl ProblemDefinition for WageScaleProblem {
         problem.add_constraint(obj.leq(self.budget));
 
         // 3. No Pay Cuts (Lower Bound)
-        let df = self.census.clone().lazy()
+        let df = self
+            .census
+            .clone()
+            .lazy()
             .group_by([col("grade"), col("step")])
             .agg([col("salary").max().alias("max_salary")])
             .collect()?;
@@ -106,16 +116,16 @@ impl ProblemDefinition for WageScaleProblem {
         let m_ca = df.column("max_salary")?.f64()?;
 
         for i in 0..df.height() {
-             let g = g_ca.get(i).unwrap();
-             let s = s_ca.get(i).unwrap();
-             if let Some(max_sal) = m_ca.get(i) {
-                 if let Some(var) = variables.get(&format!("step_{}_{}", g, s)) {
-                     // Ensure grid point is at least the max current salary in that cell
-                     // Note: variable() already has min(self.min_wage).
-                     // This adds an additional lower bound if max_sal > min_wage.
-                     problem.add_constraint(Expression::from(*var).geq(max_sal));
-                 }
-             }
+            let g = g_ca.get(i).unwrap();
+            let s = s_ca.get(i).unwrap();
+            if let Some(max_sal) = m_ca.get(i) {
+                if let Some(var) = variables.get(&format!("step_{}_{}", g, s)) {
+                    // Ensure grid point is at least the max current salary in that cell
+                    // Note: variable() already has min(self.min_wage).
+                    // This adds an additional lower bound if max_sal > min_wage.
+                    problem.add_constraint(Expression::from(*var).geq(max_sal));
+                }
+            }
         }
 
         Ok(())

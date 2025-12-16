@@ -1,5 +1,5 @@
-use polars::prelude::*;
 use oaxaca_blinder::OaxacaBuilder;
+use polars::prelude::*;
 use serde_json::Value;
 
 #[test]
@@ -29,7 +29,7 @@ fn test_export_methods() -> Result<(), Box<dyn std::error::Error>> {
     // Test JSON
     let json_str = results.to_json()?;
     let json: Value = serde_json::from_str(&json_str)?;
-    
+
     assert!(json.get("total_gap").is_some());
     assert!(json.get("two_fold").is_some());
     assert!(json["two_fold"].get("aggregate").is_some());

@@ -3,15 +3,17 @@
 //! This module provides the implementation for performing a quantile regression
 //! decomposition using the Machado-Mata (2005) simulation-based method.
 
-use polars::prelude::*;
 use getset::Getters;
-use std::collections::HashMap;
 use ndarray::{Array1, Array2};
-use rand::Rng;
+use polars::prelude::*;
 use rand::distributions::{Distribution, Uniform};
+use rand::Rng;
 use rayon::prelude::*;
+use std::collections::HashMap;
 
-use crate::{OaxacaError, ComponentResult, math::quantile_regression::solve_qr, inference::bootstrap_stats};
+use crate::{
+    inference::bootstrap_stats, math::quantile_regression::solve_qr, ComponentResult, OaxacaError,
+};
 
 /// The main entry point for configuring and running a Machado-Mata
 /// quantile regression decomposition.
@@ -82,7 +84,11 @@ impl QuantileDecompositionBuilder {
         self
     }
 
-    fn prepare_data(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<(Array2<f64>, Array1<f64>, Vec<String>), OaxacaError> {
+    fn prepare_data(
+        &self,
+        df: &DataFrame,
+        all_dummy_names: &[String],
+    ) -> Result<(Array2<f64>, Array1<f64>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
         let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
         let y = Array1::from_vec(y_vec);
@@ -96,7 +102,11 @@ impl QuantileDecompositionBuilder {
         x_df.with_column(intercept_series)?;
 
         for name in all_dummy_names {
-            if df.get_column_names().iter().any(|s| s.as_str() == name.as_str()) {
+            if df
+                .get_column_names()
+                .iter()
+                .any(|s| s.as_str() == name.as_str())
+            {
                 x_df.with_column(df.column(name)?.clone())?;
             } else {
                 let zero_series = Series::new(name.into(), vec![0.0; df.height()]);
@@ -106,12 +116,20 @@ impl QuantileDecompositionBuilder {
 
         let x_df_selected = x_df.select(final_predictors)?;
         let x = x_df_selected.to_ndarray::<Float64Type>(IndexOrder::Fortran)?;
-        let final_names = x_df_selected.get_column_names().iter().map(|s| s.to_string()).collect();
+        let final_names = x_df_selected
+            .get_column_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         Ok((x, y, final_names))
     }
 
     fn create_dummies_manual(&self, series: &Series) -> Result<DataFrame, OaxacaError> {
-        let unique_vals = series.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
+        let unique_vals = series.unique()?.sort(SortOptions {
+            descending: false,
+            nulls_last: false,
+            ..Default::default()
+        })?;
         let mut dummy_vars: Vec<Series> = Vec::new();
 
         for val in unique_vals.str()?.into_iter().flatten().skip(1) {
@@ -128,41 +146,77 @@ impl QuantileDecompositionBuilder {
 
     /// (Private) Calculates the empirical quantile of a slice of numbers.
     fn empirical_quantile(data: &mut [f64], quantile: f64) -> f64 {
-        if data.is_empty() { return 0.0; }
+        if data.is_empty() {
+            return 0.0;
+        }
         data.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
         let index = (data.len() as f64 * quantile) as usize;
         data[index.min(data.len() - 1)]
     }
 
-    fn run_single_pass(&self, df: &DataFrame, all_dummy_names: &[String]) -> Result<SinglePassResult, OaxacaError> {
-        let unique_groups = df.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
-        if unique_groups.len() < 2 { return Err(OaxacaError::InvalidGroupVariable("Not enough groups".to_string())); }
+    fn run_single_pass(
+        &self,
+        df: &DataFrame,
+        all_dummy_names: &[String],
+    ) -> Result<SinglePassResult, OaxacaError> {
+        let unique_groups = df.column(&self.group)?.unique()?.sort(SortOptions {
+            descending: false,
+            nulls_last: false,
+            ..Default::default()
+        })?;
+        if unique_groups.len() < 2 {
+            return Err(OaxacaError::InvalidGroupVariable(
+                "Not enough groups".to_string(),
+            ));
+        }
         let group_b_name = self.reference_group.as_str();
         let group_a_name = unique_groups.str()?.get(0).unwrap_or(group_b_name);
-        let group_a_name = if group_a_name == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name };
+        let group_a_name = if group_a_name == group_b_name {
+            unique_groups.str()?.get(1).unwrap_or("")
+        } else {
+            group_a_name
+        };
 
-        let df_a = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?;
-        let df_b = df.filter(&df.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?;
-        if df_a.height() < 2 || df_b.height() < 2 { return Err(OaxacaError::InvalidGroupVariable("One group has insufficient data".to_string())); }
+        let df_a = df.filter(
+            &df.column(&self.group)?
+                .as_materialized_series()
+                .equal(group_a_name)?,
+        )?;
+        let df_b = df.filter(
+            &df.column(&self.group)?
+                .as_materialized_series()
+                .equal(group_b_name)?,
+        )?;
+        if df_a.height() < 2 || df_b.height() < 2 {
+            return Err(OaxacaError::InvalidGroupVariable(
+                "One group has insufficient data".to_string(),
+            ));
+        }
 
         let (x_a, y_a, _) = self.prepare_data(&df_a, all_dummy_names)?;
         let (x_b, y_b, _) = self.prepare_data(&df_b, all_dummy_names)?;
 
         let mut rng = rand::thread_rng();
         let uniform_dist = Uniform::from(0.01..0.99);
-        let random_quantiles: Vec<f64> = (0..self.simulations).map(|_| uniform_dist.sample(&mut rng)).collect();
+        let random_quantiles: Vec<f64> = (0..self.simulations)
+            .map(|_| uniform_dist.sample(&mut rng))
+            .collect();
 
-        let betas_a: Vec<Array1<f64>> = random_quantiles.par_iter()
+        let betas_a: Vec<Array1<f64>> = random_quantiles
+            .par_iter()
             .filter_map(|&tau| solve_qr(&x_a, &y_a, tau).ok())
             .map(Array1::from)
             .collect();
-        let betas_b: Vec<Array1<f64>> = random_quantiles.par_iter()
+        let betas_b: Vec<Array1<f64>> = random_quantiles
+            .par_iter()
             .filter_map(|&tau| solve_qr(&x_b, &y_b, tau).ok())
             .map(Array1::from)
             .collect();
 
         if betas_a.len() < self.simulations / 2 || betas_b.len() < self.simulations / 2 {
-            return Err(OaxacaError::NalgebraError("Failed to estimate a sufficient number of quantile regressions.".to_string()));
+            return Err(OaxacaError::NalgebraError(
+                "Failed to estimate a sufficient number of quantile regressions.".to_string(),
+            ));
         }
 
         let num_successful_sims = std::cmp::min(betas_a.len(), betas_b.len());
@@ -203,7 +257,9 @@ impl QuantileDecompositionBuilder {
             effects_by_quantile.insert(key, effects);
         }
 
-        Ok(SinglePassResult { effects_by_quantile })
+        Ok(SinglePassResult {
+            effects_by_quantile,
+        })
     }
 
     pub fn run(&self) -> Result<QuantileDecompositionResults, OaxacaError> {
@@ -220,10 +276,25 @@ impl QuantileDecompositionBuilder {
             }
         }
 
-        let unique_groups = self.dataframe.column(&self.group)?.unique()?.sort(SortOptions { descending: false, nulls_last: false, ..Default::default() })?;
+        let unique_groups = self
+            .dataframe
+            .column(&self.group)?
+            .unique()?
+            .sort(SortOptions {
+                descending: false,
+                nulls_last: false,
+                ..Default::default()
+            })?;
         let group_b_name = self.reference_group.as_str();
-        let group_a_name_temp = unique_groups.str()?.get(0).unwrap_or(self.reference_group.as_str());
-        let group_a_name = if group_a_name_temp == group_b_name { unique_groups.str()?.get(1).unwrap_or("") } else { group_a_name_temp };
+        let group_a_name_temp = unique_groups
+            .str()?
+            .get(0)
+            .unwrap_or(self.reference_group.as_str());
+        let group_a_name = if group_a_name_temp == group_b_name {
+            unique_groups.str()?.get(1).unwrap_or("")
+        } else {
+            group_a_name_temp
+        };
 
         let point_estimates = self.run_single_pass(&df, &all_dummy_names)?;
 
@@ -234,12 +305,32 @@ impl QuantileDecompositionBuilder {
             .into_par_iter()
             .filter_map(|_| {
                 // Stratified sampling: Sample from Group A and Group B separately
-                let df_a = df.filter(&df.column(&self.group).ok()?.as_materialized_series().equal(group_a_name_owned.as_str()).ok()?).ok()?;
-                let df_b = df.filter(&df.column(&self.group).ok()?.as_materialized_series().equal(group_b_name_owned.as_str()).ok()?).ok()?;
+                let df_a = df
+                    .filter(
+                        &df.column(&self.group)
+                            .ok()?
+                            .as_materialized_series()
+                            .equal(group_a_name_owned.as_str())
+                            .ok()?,
+                    )
+                    .ok()?;
+                let df_b = df
+                    .filter(
+                        &df.column(&self.group)
+                            .ok()?
+                            .as_materialized_series()
+                            .equal(group_b_name_owned.as_str())
+                            .ok()?,
+                    )
+                    .ok()?;
 
-                let sample_a = df_a.sample_n_literal(df_a.height(), true, false, None).ok()?;
-                let sample_b = df_b.sample_n_literal(df_b.height(), true, false, None).ok()?;
-                
+                let sample_a = df_a
+                    .sample_n_literal(df_a.height(), true, false, None)
+                    .ok()?;
+                let sample_b = df_b
+                    .sample_n_literal(df_b.height(), true, false, None)
+                    .ok()?;
+
                 let sample_df = sample_a.vstack(&sample_b).ok()?;
 
                 self.run_single_pass(&sample_df, &all_dummy_names).ok()
@@ -250,26 +341,92 @@ impl QuantileDecompositionBuilder {
         for key in point_estimates.effects_by_quantile.keys() {
             let point = point_estimates.effects_by_quantile.get(key).unwrap();
 
-            let gap_dist: Vec<f64> = bootstrap_results.iter().filter_map(|r| r.effects_by_quantile.get(key).map(|e| e.gap)).collect();
-            let char_dist: Vec<f64> = bootstrap_results.iter().filter_map(|r| r.effects_by_quantile.get(key).map(|e| e.characteristics)).collect();
-            let coeff_dist: Vec<f64> = bootstrap_results.iter().filter_map(|r| r.effects_by_quantile.get(key).map(|e| e.coefficients)).collect();
+            let gap_dist: Vec<f64> = bootstrap_results
+                .iter()
+                .filter_map(|r| r.effects_by_quantile.get(key).map(|e| e.gap))
+                .collect();
+            let char_dist: Vec<f64> = bootstrap_results
+                .iter()
+                .filter_map(|r| r.effects_by_quantile.get(key).map(|e| e.characteristics))
+                .collect();
+            let coeff_dist: Vec<f64> = bootstrap_results
+                .iter()
+                .filter_map(|r| r.effects_by_quantile.get(key).map(|e| e.coefficients))
+                .collect();
 
-            let (gap_std_err, gap_p_val, (gap_ci_low, gap_ci_high)) = bootstrap_stats(&gap_dist, point.gap);
-            let (char_std_err, char_p_val, (char_ci_low, char_ci_high)) = bootstrap_stats(&char_dist, point.characteristics);
-            let (coeff_std_err, coeff_p_val, (coeff_ci_low, coeff_ci_high)) = bootstrap_stats(&coeff_dist, point.coefficients);
+            let (gap_std_err, gap_p_val, (gap_ci_low, gap_ci_high)) =
+                bootstrap_stats(&gap_dist, point.gap);
+            let (char_std_err, char_p_val, (char_ci_low, char_ci_high)) =
+                bootstrap_stats(&char_dist, point.characteristics);
+            let (coeff_std_err, coeff_p_val, (coeff_ci_low, coeff_ci_high)) =
+                bootstrap_stats(&coeff_dist, point.coefficients);
 
             let detail = QuantileDecompositionDetail {
-                total_gap: ComponentResult { name: "Total Gap".to_string(), estimate: point.gap, std_err: gap_std_err, t_stat: if gap_std_err.abs() > 1e-9 { point.gap / gap_std_err } else { 0.0 }, p_value: gap_p_val, ci_lower: gap_ci_low, ci_upper: gap_ci_high },
-                characteristics_effect: ComponentResult { name: "Characteristics".to_string(), estimate: point.characteristics, std_err: char_std_err, t_stat: if char_std_err.abs() > 1e-9 { point.characteristics / char_std_err } else { 0.0 }, p_value: char_p_val, ci_lower: char_ci_low, ci_upper: char_ci_high },
-                coefficients_effect: ComponentResult { name: "Coefficients".to_string(), estimate: point.coefficients, std_err: coeff_std_err, t_stat: if coeff_std_err.abs() > 1e-9 { point.coefficients / coeff_std_err } else { 0.0 }, p_value: coeff_p_val, ci_lower: coeff_ci_low, ci_upper: coeff_ci_high },
+                total_gap: ComponentResult {
+                    name: "Total Gap".to_string(),
+                    estimate: point.gap,
+                    std_err: gap_std_err,
+                    t_stat: if gap_std_err.abs() > 1e-9 {
+                        point.gap / gap_std_err
+                    } else {
+                        0.0
+                    },
+                    p_value: gap_p_val,
+                    ci_lower: gap_ci_low,
+                    ci_upper: gap_ci_high,
+                },
+                characteristics_effect: ComponentResult {
+                    name: "Characteristics".to_string(),
+                    estimate: point.characteristics,
+                    std_err: char_std_err,
+                    t_stat: if char_std_err.abs() > 1e-9 {
+                        point.characteristics / char_std_err
+                    } else {
+                        0.0
+                    },
+                    p_value: char_p_val,
+                    ci_lower: char_ci_low,
+                    ci_upper: char_ci_high,
+                },
+                coefficients_effect: ComponentResult {
+                    name: "Coefficients".to_string(),
+                    estimate: point.coefficients,
+                    std_err: coeff_std_err,
+                    t_stat: if coeff_std_err.abs() > 1e-9 {
+                        point.coefficients / coeff_std_err
+                    } else {
+                        0.0
+                    },
+                    p_value: coeff_p_val,
+                    ci_lower: coeff_ci_low,
+                    ci_upper: coeff_ci_high,
+                },
             };
             final_results.insert(key.clone(), detail);
         }
 
         Ok(QuantileDecompositionResults {
             results_by_quantile: final_results,
-            n_a: self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_a_name)?)?.height(),
-            n_b: self.dataframe.filter(&self.dataframe.column(&self.group)?.as_materialized_series().equal(group_b_name)?)?.height(),
+            n_a: self
+                .dataframe
+                .filter(
+                    &self
+                        .dataframe
+                        .column(&self.group)?
+                        .as_materialized_series()
+                        .equal(group_a_name)?,
+                )?
+                .height(),
+            n_b: self
+                .dataframe
+                .filter(
+                    &self
+                        .dataframe
+                        .column(&self.group)?
+                        .as_materialized_series()
+                        .equal(group_b_name)?,
+                )?
+                .height(),
         })
     }
 }
@@ -290,7 +447,7 @@ pub struct QuantileDecompositionResults {
 impl QuantileDecompositionResults {
     /// Prints a formatted summary of the decomposition results to the console.
     pub fn summary(&self) {
-        use comfy_table::{Table, Cell};
+        use comfy_table::{Cell, Table};
 
         println!("Machado-Mata Quantile Decomposition Results");
         println!("============================================");
@@ -305,7 +462,13 @@ impl QuantileDecompositionResults {
             println!("\n--- Decomposition for Quantile: {} ---", quantile_key);
 
             let mut table = Table::new();
-            table.set_header(vec!["Component", "Estimate", "Std. Err.", "p-value", "95% CI"]);
+            table.set_header(vec![
+                "Component",
+                "Estimate",
+                "Std. Err.",
+                "p-value",
+                "95% CI",
+            ]);
 
             let components = vec![
                 results.total_gap(),

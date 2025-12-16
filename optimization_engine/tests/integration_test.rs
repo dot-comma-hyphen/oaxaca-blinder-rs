@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use oaxaca_blinder::OaxacaBuilder;
     use optimization_engine::engine::OptimizationEngine;
     use optimization_engine::pay_equity::PayEquityProblem;
     use optimization_engine::wage_scale::WageScaleProblem;
-    use oaxaca_blinder::OaxacaBuilder;
     use polars::prelude::*;
 
     #[test]

@@ -68,7 +68,10 @@ pub fn two_fold_decomposition(
     let explained = (xa_mean - xb_mean).dot(beta_star);
     let total_gap = xa_mean.dot(beta_a) - xb_mean.dot(beta_b);
     let unexplained = total_gap - explained;
-    TwoFoldDecomposition { explained, unexplained }
+    TwoFoldDecomposition {
+        explained,
+        unexplained,
+    }
 }
 
 /// Computes the three-fold Oaxaca-Blinder decomposition.
@@ -83,7 +86,11 @@ pub fn three_fold_decomposition(
     let endowments = diff_x.dot(beta_b);
     let coefficients = xb_mean.dot(&diff_beta);
     let interaction = diff_x.dot(&diff_beta);
-    ThreeFoldDecomposition { endowments, coefficients, interaction }
+    ThreeFoldDecomposition {
+        endowments,
+        coefficients,
+        interaction,
+    }
 }
 
 /// Computes the detailed decomposition for both explained and unexplained parts.
@@ -118,7 +125,6 @@ pub fn detailed_decomposition(
 
     (explained, unexplained)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -155,8 +161,7 @@ mod tests {
             &beta_star_b,
             &predictor_names,
         );
-        let two_fold_b =
-            two_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star_b);
+        let two_fold_b = two_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star_b);
 
         let total_explained: f64 = explained_detailed.iter().map(|c| c.contribution).sum();
         let total_unexplained: f64 = unexplained_detailed.iter().map(|c| c.contribution).sum();
@@ -174,8 +179,7 @@ mod tests {
             &beta_star_a,
             &predictor_names,
         );
-        let two_fold_a =
-            two_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star_a);
+        let two_fold_a = two_fold_decomposition(&xa_mean, &xb_mean, &beta_a, &beta_b, &beta_star_a);
 
         let total_explained_a: f64 = explained_detailed_a.iter().map(|c| c.contribution).sum();
         let total_unexplained_a: f64 = unexplained_detailed_a.iter().map(|c| c.contribution).sum();

@@ -1,5 +1,5 @@
+use oaxaca_blinder::{OaxacaBuilder, QuantileDecompositionBuilder, ReferenceCoefficients};
 use polars::prelude::*;
-use oaxaca_blinder::{OaxacaBuilder, ReferenceCoefficients, QuantileDecompositionBuilder};
 
 fn create_sample_dataframe() -> DataFrame {
     df!(
@@ -17,11 +17,32 @@ fn run_and_check(builder: OaxacaBuilder, expected_gap: f64) {
     assert!((results.total_gap() - expected_gap).abs() < 1e-9);
 
     // Check that the two-fold decomposition sums to the total gap
-    let explained = results.two_fold().aggregate().iter().find(|c| c.name() == "explained").unwrap().estimate();
-    let unexplained = results.two_fold().aggregate().iter().find(|c| c.name() == "unexplained").unwrap().estimate();
+    let explained = results
+        .two_fold()
+        .aggregate()
+        .iter()
+        .find(|c| c.name() == "explained")
+        .unwrap()
+        .estimate();
+    let unexplained = results
+        .two_fold()
+        .aggregate()
+        .iter()
+        .find(|c| c.name() == "unexplained")
+        .unwrap()
+        .estimate();
     let total_gap = results.total_gap();
-    println!("Explained: {}, Unexplained: {}, Sum: {}, Total Gap: {}", explained, unexplained, explained + unexplained, total_gap);
-    assert!((explained + unexplained - results.total_gap()).abs() < 1e-9, "Decomposition does not sum to total gap");
+    println!(
+        "Explained: {}, Unexplained: {}, Sum: {}, Total Gap: {}",
+        explained,
+        unexplained,
+        explained + unexplained,
+        total_gap
+    );
+    assert!(
+        (explained + unexplained - results.total_gap()).abs() < 1e-9,
+        "Decomposition does not sum to total gap"
+    );
 
     // Check that the number of observations is correct
     assert_eq!(*results.n_a(), 10);
@@ -42,7 +63,8 @@ fn test_detailed_components_with_rare_category() {
     ).unwrap();
 
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    let results = builder.predictors(&["education"])
+    let results = builder
+        .predictors(&["education"])
         .categorical_predictors(&["sector"])
         .bootstrap_reps(5)
         .run()
@@ -53,18 +75,27 @@ fn test_detailed_components_with_rare_category() {
     // disappeared in some bootstrap samples, or would produce nonsensical results (e.g. NaN).
     let detailed_unexplained = results.two_fold().detailed_unexplained();
 
-    let intercept = detailed_unexplained.iter().find(|c| c.name() == "intercept").unwrap();
+    let intercept = detailed_unexplained
+        .iter()
+        .find(|c| c.name() == "intercept")
+        .unwrap();
     assert!(intercept.ci_lower().is_finite());
     assert!(intercept.ci_upper().is_finite());
 
-    let education = detailed_unexplained.iter().find(|c| c.name() == "education").unwrap();
+    let education = detailed_unexplained
+        .iter()
+        .find(|c| c.name() == "education")
+        .unwrap();
     assert!(education.ci_lower().is_finite());
     assert!(education.ci_upper().is_finite());
 
     // With the bug, the "sector_B" component might have issues if it's not present in all bootstrap samples.
     // We expect it to be present in the final results, and its stats should be valid numbers.
     let sector_b = detailed_unexplained.iter().find(|c| c.name() == "sector_B");
-    assert!(sector_b.is_some(), "Detailed component for rare category 'sector_B' should be present");
+    assert!(
+        sector_b.is_some(),
+        "Detailed component for rare category 'sector_B' should be present"
+    );
     assert!(sector_b.unwrap().ci_lower().is_finite());
     assert!(sector_b.unwrap().ci_upper().is_finite());
 
@@ -75,8 +106,7 @@ fn test_detailed_components_with_rare_category() {
 fn test_full_run_group_b_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    builder.predictors(&["education"])
-        .bootstrap_reps(5); // Default is GroupB
+    builder.predictors(&["education"]).bootstrap_reps(5); // Default is GroupB
     run_and_check(builder, 10.0);
 }
 
@@ -84,7 +114,8 @@ fn test_full_run_group_b_ref() {
 fn test_full_run_group_a_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    builder.predictors(&["education"])
+    builder
+        .predictors(&["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::GroupA);
     run_and_check(builder, 10.0);
@@ -94,7 +125,8 @@ fn test_full_run_group_a_ref() {
 fn test_full_run_pooled_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    builder.predictors(&["education"])
+    builder
+        .predictors(&["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Pooled);
     run_and_check(builder, 10.0);
@@ -104,7 +136,8 @@ fn test_full_run_pooled_ref() {
 fn test_full_run_weighted_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    builder.predictors(&["education"])
+    builder
+        .predictors(&["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Weighted);
     run_and_check(builder, 10.0);
@@ -120,7 +153,8 @@ fn test_with_categorical_variable() {
     ).unwrap();
 
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    builder.predictors(&["education"])
+    builder
+        .predictors(&["education"])
         .categorical_predictors(&["union"])
         .normalize(&["union"])
         .bootstrap_reps(5);
@@ -139,7 +173,8 @@ fn test_quantile_decomposition() {
 
     let quantiles_to_test = &[0.25, 0.5, 0.75];
     let mut builder = QuantileDecompositionBuilder::new(df, "wage", "gender", "F");
-    let results = builder.predictors(&["education"])
+    let results = builder
+        .predictors(&["education"])
         .quantiles(quantiles_to_test)
         .simulations(10) // Low number for fast testing
         .bootstrap_reps(2) // Low number for fast testing

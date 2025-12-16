@@ -1,6 +1,6 @@
 use crate::engine::{ProblemDefinition, VariableMap};
-use good_lp::{Expression, SolverModel, variable};
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use good_lp::{variable, Expression, SolverModel};
 use nalgebra::DVector;
 use oaxaca_blinder::OaxacaBuilder;
 
@@ -11,22 +11,31 @@ pub struct PayEquityProblem {
 
 impl PayEquityProblem {
     pub fn new(builder: OaxacaBuilder, target_gap: f64) -> Self {
-        Self { builder, target_gap }
+        Self {
+            builder,
+            target_gap,
+        }
     }
 
     fn calculate_coefficients(&self) -> Result<(DVector<f64>, f64)> {
         // 1. Get matrices
-        let (x_a, y_a, x_b, y_b, _) = self.builder.get_data_matrices()
+        let (x_a, y_a, x_b, y_b, _) = self
+            .builder
+            .get_data_matrices()
             .map_err(|e| anyhow::anyhow!("Oaxaca Error: {}", e))?;
 
         // 2. Calculate initial OLS for Group A and B
         let xtx_a = x_a.transpose() * &x_a;
         let xtx_b = x_b.transpose() * &x_b;
 
-        let chol_a = xtx_a.cholesky().context("Matrix X_A'X_A is not positive definite")?;
+        let chol_a = xtx_a
+            .cholesky()
+            .context("Matrix X_A'X_A is not positive definite")?;
         let beta_a = chol_a.solve(&(&x_a.transpose() * &y_a));
 
-        let chol_b = xtx_b.cholesky().context("Matrix X_B'X_B is not positive definite")?;
+        let chol_b = xtx_b
+            .cholesky()
+            .context("Matrix X_B'X_B is not positive definite")?;
         let beta_b = chol_b.solve(&(&x_b.transpose() * &y_b));
 
         // 3. Calculate Means
@@ -40,11 +49,17 @@ impl PayEquityProblem {
 
         // Debugging shape mismatch
         if xb_mean.ncols() != diff.nrows() {
-             anyhow::bail!("Shape mismatch: xb_mean ({}, {}), diff ({}, {})", xb_mean.nrows(), xb_mean.ncols(), diff.nrows(), diff.ncols());
+            anyhow::bail!(
+                "Shape mismatch: xb_mean ({}, {}), diff ({}, {})",
+                xb_mean.nrows(),
+                xb_mean.ncols(),
+                diff.nrows(),
+                diff.ncols()
+            );
         }
 
         // Use clone or reference to avoid move
-        let unexplained_old = (xb_mean.clone() * &diff)[(0,0)];
+        let unexplained_old = (xb_mean.clone() * &diff)[(0, 0)];
 
         // 5. Calculate M
         let inv_xtx_b = chol_b.inverse();
@@ -62,7 +77,9 @@ impl PayEquityProblem {
 
 impl ProblemDefinition for PayEquityProblem {
     fn define_variables(&self, problem: &mut good_lp::ProblemVariables) -> Result<VariableMap> {
-        let (_, _, _, y_b, _) = self.builder.get_data_matrices()
+        let (_, _, _, y_b, _) = self
+            .builder
+            .get_data_matrices()
             .map_err(|e| anyhow::anyhow!("Oaxaca Error: {}", e))?;
 
         let n = y_b.len();
@@ -80,7 +97,11 @@ impl ProblemDefinition for PayEquityProblem {
         variables.values().sum()
     }
 
-    fn define_constraints<T: SolverModel>(&self, variables: &VariableMap, problem: &mut T) -> Result<()> {
+    fn define_constraints<T: SolverModel>(
+        &self,
+        variables: &VariableMap,
+        problem: &mut T,
+    ) -> Result<()> {
         let (m, unexplained_old) = self.calculate_coefficients()?;
 
         let mut lhs = Expression::from(0);

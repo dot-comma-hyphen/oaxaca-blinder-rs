@@ -1,7 +1,7 @@
 use crate::engine::{ProblemDefinition, VariableMap};
-use good_lp::{Variable, Expression, SolverModel, Constraint, IntoAffineExpression, variable};
-use polars::prelude::*;
 use anyhow::Result;
+use good_lp::{variable, Constraint, Expression, IntoAffineExpression, SolverModel, Variable};
+use polars::prelude::*;
 
 pub struct MeritMatrixProblem {
     pub census: DataFrame,
@@ -10,7 +10,10 @@ pub struct MeritMatrixProblem {
 
 impl MeritMatrixProblem {
     pub fn new(census: DataFrame, merit_budget: f64) -> Self {
-        Self { census, merit_budget }
+        Self {
+            census,
+            merit_budget,
+        }
     }
 }
 
@@ -28,7 +31,12 @@ impl ProblemDefinition for MeritMatrixProblem {
     }
 
     fn define_objective(&self, variables: &VariableMap) -> Expression {
-        let ratings = self.census.column("performance_rating").expect("performance_rating column missing").f64().expect("must be float");
+        let ratings = self
+            .census
+            .column("performance_rating")
+            .expect("performance_rating column missing")
+            .f64()
+            .expect("must be float");
 
         let mut expr = Expression::from(0);
 
@@ -43,16 +51,25 @@ impl ProblemDefinition for MeritMatrixProblem {
         expr
     }
 
-    fn define_constraints<T: SolverModel>(&self, variables: &VariableMap, problem: &mut T) -> Result<()> {
-        let salaries = self.census.column("salary").expect("salary column missing").f64().expect("must be float");
+    fn define_constraints<T: SolverModel>(
+        &self,
+        variables: &VariableMap,
+        problem: &mut T,
+    ) -> Result<()> {
+        let salaries = self
+            .census
+            .column("salary")
+            .expect("salary column missing")
+            .f64()
+            .expect("must be float");
 
         let mut cost_expr = Expression::from(0);
 
         for i in 0..self.census.height() {
             if let Some(s) = salaries.get(i) {
-                 if let Some(var) = variables.get(&format!("increase_pct_{}", i)) {
-                     cost_expr += *var * s;
-                 }
+                if let Some(var) = variables.get(&format!("increase_pct_{}", i)) {
+                    cost_expr += *var * s;
+                }
             }
         }
 
