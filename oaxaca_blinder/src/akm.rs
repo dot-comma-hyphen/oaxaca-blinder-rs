@@ -279,7 +279,7 @@ fn solve_akm(
         .collect();
 
     let y_series = df.column(outcome)?.f64()?;
-    let mut y: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
+    let y: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
 
     // Prepare X (controls)
     let mut x_vectors: Vec<Vec<f64>> = Vec::new();

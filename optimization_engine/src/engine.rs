@@ -1,5 +1,5 @@
-use anyhow::{Error, Result};
-use good_lp::{variable, Expression, ResolutionError, Solution, SolverModel, Variable};
+use anyhow::Result;
+use good_lp::{Expression, ResolutionError, Solution, SolverModel, Variable};
 use polars::prelude::*;
 use std::collections::HashMap;
 use thiserror::Error;

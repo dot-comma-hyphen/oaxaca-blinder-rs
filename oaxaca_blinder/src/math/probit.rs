@@ -4,6 +4,7 @@ use statrs::distribution::{Continuous, ContinuousCDF, Normal};
 
 /// Represents the results of a Probit regression.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ProbitResult {
     pub coefficients: DVector<f64>,
     pub vcov: DMatrix<f64>,
@@ -89,6 +90,11 @@ pub fn probit(
         // Newton step: \Delta \beta = -H^{-1} g
         // Since we use Fisher Scoring, H is negative definite.
         // We solve H \Delta \beta = -g
+
+        // Add small regularization to diagonal to ensure invertibility
+        for i in 0..k {
+            h[(i, i)] -= 1e-9;
+        }
 
         let h_inv = match h.clone().try_inverse() {
             Some(inv) => inv,

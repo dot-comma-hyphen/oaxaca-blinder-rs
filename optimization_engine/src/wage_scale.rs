@@ -2,7 +2,6 @@ use crate::engine::{ProblemDefinition, VariableMap};
 use anyhow::Result;
 use good_lp::{variable, Expression, SolverModel};
 use polars::prelude::*;
-use std::collections::HashMap;
 
 pub struct WageScaleProblem {
     pub census: DataFrame,

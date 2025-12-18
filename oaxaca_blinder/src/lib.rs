@@ -53,6 +53,7 @@
 //! }
 //! ```
 
+#[cfg(feature = "display")]
 use comfy_table::{Cell, Table};
 use getset::Getters;
 use nalgebra::{DMatrix, DVector};
@@ -65,10 +66,11 @@ mod decomposition;
 mod inference;
 mod math;
 
+pub use crate::decomposition::BudgetAdjustment;
 pub use crate::decomposition::ReferenceCoefficients;
 use crate::decomposition::{
-    detailed_decomposition, three_fold_decomposition, two_fold_decomposition, BudgetAdjustment,
-    DetailedComponent, ThreeFoldDecomposition, TwoFoldDecomposition,
+    detailed_decomposition, three_fold_decomposition, two_fold_decomposition, DetailedComponent,
+    ThreeFoldDecomposition, TwoFoldDecomposition,
 };
 use crate::inference::bootstrap_stats;
 use crate::math::normalization::normalize_categorical_coefficients;
@@ -89,6 +91,7 @@ pub use crate::akm::{AkmBuilder, AkmResult};
 pub mod matching;
 pub use crate::matching::engine::MatchingEngine;
 
+#[cfg(feature = "python")]
 #[cfg(feature = "python")]
 pub mod python;
 
@@ -147,6 +150,7 @@ pub struct OaxacaBuilder {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct SinglePassResult {
     three_fold: ThreeFoldDecomposition,
     two_fold: TwoFoldDecomposition,
@@ -826,7 +830,7 @@ impl OaxacaBuilder {
             Some(z_mean_b),
             Some(delta_a),
             Some(delta_b),
-            Some(sel_names),
+            Some(_sel_names),
         ) = (
             &result.selection_coeffs_a,
             &result.selection_coeffs_b,
@@ -1428,13 +1432,13 @@ impl OaxacaBuilder {
 #[getset(get = "pub")]
 pub struct TwoFoldResults {
     /// Aggregate results for the explained and unexplained components.
-    aggregate: Vec<ComponentResult>,
+    pub aggregate: Vec<ComponentResult>,
     /// Detailed results for the explained component, broken down by variable.
-    detailed_explained: Vec<ComponentResult>,
+    pub detailed_explained: Vec<ComponentResult>,
     /// Detailed results for the unexplained component, broken down by variable.
-    detailed_unexplained: Vec<ComponentResult>,
+    pub detailed_unexplained: Vec<ComponentResult>,
     /// Detailed results for the selection component (Heckman only).
-    detailed_selection: Vec<ComponentResult>,
+    pub detailed_selection: Vec<ComponentResult>,
 }
 
 /// Holds all the results from the Oaxaca-Blinder decomposition.
@@ -1442,27 +1446,27 @@ pub struct TwoFoldResults {
 #[getset(get = "pub")]
 pub struct OaxacaResults {
     /// The total difference in the mean outcome between the two groups.
-    total_gap: f64,
+    pub total_gap: f64,
     /// The results of the two-fold decomposition.
-    two_fold: TwoFoldResults,
+    pub two_fold: TwoFoldResults,
     /// The results of the three-fold decomposition.
-    three_fold: DecompositionDetail,
+    pub three_fold: DecompositionDetail,
     /// The number of observations in the advantaged group (Group A).
-    n_a: usize,
+    pub n_a: usize,
     /// The number of observations in the reference group (Group B).
-    n_b: usize,
+    pub n_b: usize,
     /// The residuals of the reference group (Group B) from the decomposition model.
     /// These represent the "unexplained" part of the outcome for each individual.
-    residuals: Vec<f64>,
+    pub residuals: Vec<f64>,
     /// The mean of the predictors for Group A.
     #[serde(skip)]
-    xa_mean: DVector<f64>,
+    pub xa_mean: DVector<f64>,
     /// The mean of the predictors for Group B.
     #[serde(skip)]
-    xb_mean: DVector<f64>,
+    pub xb_mean: DVector<f64>,
     /// The reference coefficients used in the decomposition.
     #[serde(skip)]
-    beta_star: DVector<f64>,
+    pub beta_star: DVector<f64>,
 }
 
 impl OaxacaResults {
@@ -1502,6 +1506,7 @@ impl OaxacaResults {
     }
 
     /// Prints a formatted summary of the decomposition results to the console.
+    #[cfg(feature = "display")]
     pub fn summary(&self) {
         println!("Oaxaca-Blinder Decomposition Results");
         println!("========================================");
@@ -1711,22 +1716,22 @@ impl OaxacaResults {
 #[getset(get = "pub")]
 pub struct DecompositionDetail {
     /// Aggregate results for this decomposition component (e.g., "Explained", "Unexplained").
-    aggregate: Vec<ComponentResult>,
+    pub aggregate: Vec<ComponentResult>,
     /// Detailed results broken down by each predictor variable.
-    detailed: Vec<ComponentResult>,
+    pub detailed: Vec<ComponentResult>,
 }
 
 /// Represents the calculated result for a single component or variable.
 #[derive(Debug, Getters, Clone, Serialize)]
 #[getset(get = "pub")]
 pub struct ComponentResult {
-    name: String,
-    estimate: f64,
-    std_err: f64,
-    t_stat: f64,
-    p_value: f64,
-    ci_lower: f64,
-    ci_upper: f64,
+    pub name: String,
+    pub estimate: f64,
+    pub std_err: f64,
+    pub t_stat: f64,
+    pub p_value: f64,
+    pub ci_lower: f64,
+    pub ci_upper: f64,
 }
 
 #[cfg(test)]

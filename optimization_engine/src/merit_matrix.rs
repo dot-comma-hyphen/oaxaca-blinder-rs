@@ -1,6 +1,6 @@
 use crate::engine::{ProblemDefinition, VariableMap};
 use anyhow::Result;
-use good_lp::{variable, Constraint, Expression, IntoAffineExpression, SolverModel, Variable};
+use good_lp::{variable, Expression, SolverModel};
 use polars::prelude::*;
 
 pub struct MeritMatrixProblem {

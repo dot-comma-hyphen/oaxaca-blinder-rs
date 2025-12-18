@@ -63,7 +63,7 @@ impl LogisticRegression {
 
             // Compute Hessian efficiently
             // H_jk = sum_i (x_ij * x_ik * w_i)
-            let mut hessian = DMatrix::zeros(n_features, n_features);
+            // let mut hessian = DMatrix::zeros(n_features, n_features);
 
             // This loop is O(N * K^2), acceptable if K is small.
             // For larger K, matrix multiplication is better.
@@ -79,7 +79,7 @@ impl LogisticRegression {
                 let mut row = x_weighted.row_mut(i);
                 row *= w;
             }
-            hessian = x.transpose() * x_weighted;
+            let mut hessian = x.transpose() * x_weighted;
 
             // Regularization (Ridge) to avoid singular matrix?
             // Add small value to diagonal

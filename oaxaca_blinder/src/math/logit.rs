@@ -3,6 +3,7 @@ use nalgebra::{DMatrix, DVector};
 
 /// Represents the results of a Logistic Regression.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct LogitResult {
     pub coefficients: DVector<f64>,
     pub predicted_probs: DVector<f64>,

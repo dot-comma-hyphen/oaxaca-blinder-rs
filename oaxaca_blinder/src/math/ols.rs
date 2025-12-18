@@ -3,6 +3,7 @@ use nalgebra::{DMatrix, DVector};
 
 /// Represents the results of an OLS regression.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct OlsResult {
     pub coefficients: DVector<f64>,
     pub vcov: DMatrix<f64>,

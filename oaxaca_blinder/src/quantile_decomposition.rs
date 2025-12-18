@@ -445,7 +445,8 @@ pub struct QuantileDecompositionResults {
 }
 
 impl QuantileDecompositionResults {
-    /// Prints a formatted summary of the decomposition results to the console.
+    /// Prints a summary of the quantile decomposition.
+    #[cfg(feature = "display")]
     pub fn summary(&self) {
         use comfy_table::{Cell, Table};
 

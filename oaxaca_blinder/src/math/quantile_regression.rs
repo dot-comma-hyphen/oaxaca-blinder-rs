@@ -124,7 +124,7 @@ mod tests {
         let tau = 0.5;
 
         // For perfectly linear data, the QR line should be the same for all quantiles.
-        let expected_betas = vec![0.0, 1.0];
+        let expected_betas = [0.0, 1.0];
 
         let result = solve_qr(&x, &y, tau).unwrap();
 
@@ -142,7 +142,7 @@ mod tests {
         let tau = 0.25;
 
         // For perfectly linear data, the QR line should be the same for all quantiles.
-        let expected_betas = vec![0.0, 1.0];
+        let expected_betas = [0.0, 1.0];
 
         let result = solve_qr(&x, &y, tau).unwrap();
 

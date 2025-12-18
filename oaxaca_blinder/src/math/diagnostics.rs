@@ -1,4 +1,6 @@
 //! Variance Inflation Factor (VIF) diagnostic function.
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use crate::math::ols::ols;
 use crate::OaxacaError;
 use nalgebra::{DMatrix, DVector};

@@ -71,8 +71,8 @@ mod tests {
         // Prediction for B: 12 + 0 = 12. (Matches original 10 + 2)
         // Prediction for C: 12 + 2 = 14. (Matches original 10 + 4)
 
-        let mut coeffs = DVector::from_vec(vec![10.0, 2.0, 4.0]); // Intercept, cat_B, cat_C
-        let mut vcov = DMatrix::zeros(3, 3);
+        let coeffs = DVector::from_vec(vec![10.0, 2.0, 4.0]); // Intercept, cat_B, cat_C
+        let vcov = DMatrix::zeros(3, 3);
         let residuals = DVector::zeros(0); // Empty residuals for test
         let mut ols_result = OlsResult {
             coefficients: coeffs,

@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use oaxaca_blinder::{OaxacaBuilder, QuantileDecompositionBuilder, ReferenceCoefficients};
 use polars::prelude::*;
-use serde::Serialize;
+
 use std::error::Error;
 use std::path::PathBuf;
 
@@ -71,7 +71,7 @@ struct RunArgs {
     analysis_type: AnalysisType,
 
     /// Specifies the reference coefficients for the two-fold decomposition (for mean analysis)
-    #[arg(long, default_value = "group_b", value_enum)]
+    #[arg(long, default_value = "group-b", value_enum)]
     ref_coeffs: ReferenceType,
 
     /// A comma-separated string of quantiles to analyze (for quantile analysis)

@@ -5,7 +5,6 @@ use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
 use nalgebra::{DMatrix, DVector};
 use polars::prelude::*;
-use std::collections::HashMap;
 
 /// Struct for performing matching.
 pub struct MatchingEngine {
