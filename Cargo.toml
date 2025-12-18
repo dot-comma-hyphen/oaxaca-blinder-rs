@@ -2,5 +2,5 @@
 resolver = "2"
 members = [
     "oaxaca_blinder",
-    "optimization_engine",
+    "openpay_optimization",
 ]

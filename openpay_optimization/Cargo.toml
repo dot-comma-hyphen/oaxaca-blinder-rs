@@ -1,0 +1,24 @@
+[package]
+name = "openpay_optimization"
+version = "0.1.0"
+authors = ["dot-comma-hyphen <poche450@gmail.com>"]
+edition = "2021"
+description = "A generic optimization framework for HR and Compensation problems (Wage Scales, Merit Matrices, Pay Equity)."
+license = "MIT"
+repository = "https://github.com/dot-comma-hyphen/oaxaca-blinder-rs"
+keywords = ["optimization", "hr", "compensation", "economics"]
+categories = ["science", "algorithms"]
+
+[dependencies]
+good_lp = { version = "1.8", features = ["highs"], default-features = false }
+polars = { version = "0.44", features = ["lazy", "ndarray", "rows", "is_in"] }
+anyhow = "1.0"
+thiserror = "2.0"
+nalgebra = "0.32"
+oaxaca_blinder = { path = "../oaxaca_blinder", version = "0.2.2", optional = true }
+ndarray = "0.15"
+
+[features]
+pay_equity = ["dep:oaxaca_blinder"]
+
+[dev-dependencies]

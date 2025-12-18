@@ -1,3 +1,4 @@
+#![cfg(feature = "pay_equity")]
 use crate::engine::{ProblemDefinition, VariableMap};
 use anyhow::{Context, Result};
 use good_lp::{variable, Expression, SolverModel};

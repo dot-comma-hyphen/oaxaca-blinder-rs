@@ -1,11 +1,14 @@
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "pay_equity")]
     use oaxaca_blinder::OaxacaBuilder;
-    use optimization_engine::engine::OptimizationEngine;
-    use optimization_engine::pay_equity::PayEquityProblem;
-    use optimization_engine::wage_scale::WageScaleProblem;
+    use openpay_optimization::engine::OptimizationEngine;
+    #[cfg(feature = "pay_equity")]
+    use openpay_optimization::pay_equity::PayEquityProblem;
+    use openpay_optimization::wage_scale::WageScaleProblem;
     use polars::prelude::*;
 
+    #[cfg(feature = "pay_equity")]
     #[test]
     fn test_pay_equity_remediation() -> anyhow::Result<()> {
         // Create dummy data
@@ -104,6 +107,46 @@ mod tests {
         assert!(s11 >= min_wage);
 
         println!("Wage Scale: {:?}", result.solution);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_merit_matrix_optimization() -> anyhow::Result<()> {
+        use openpay_optimization::merit_matrix::MeritMatrixProblem;
+
+        // 3 Employees
+        // E1: Rating 5.0 (Top), Salary 100k
+        // E2: Rating 3.0 (Mid), Salary 100k
+        // E3: Rating 1.0 (Low), Salary 100k
+        let df = df!(
+            "performance_rating" => &[5.0, 3.0, 1.0],
+            "salary" => &[100_000.0, 100_000.0, 100_000.0]
+        )?;
+
+        // Budget: 10k total (enough for 10% on one person, or split)
+        // Since E1 has highest rating, optimizer should maximize E1's increase.
+        let budget = 10_000.0;
+        let problem = MeritMatrixProblem::new(df, budget);
+
+        let engine = OptimizationEngine::new();
+        let result = engine.solve(problem)?;
+
+        let inc0 = result.solution["increase_pct_0"]; // E1
+        let inc1 = result.solution["increase_pct_1"]; // E2
+        let inc2 = result.solution["increase_pct_2"]; // E3
+
+        println!(
+            "Merit Increases: E1={:.4}, E2={:.4}, E3={:.4}",
+            inc0, inc1, inc2
+        );
+
+        // Expect E1 to get max increase (10%) because 5.0 > 3.0
+        assert!((inc0 - 0.10).abs() < 1e-4);
+
+        // E2 and E3 should get 0 because budget is exhausted by E1 (10% * 100k = 10k)
+        assert!(inc1 < 1e-4);
+        assert!(inc2 < 1e-4);
 
         Ok(())
     }
