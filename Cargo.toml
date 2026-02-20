@@ -2,4 +2,6 @@
 resolver = "2"
 members = [
     "oaxaca_blinder",
+    "engine",
+    "meridian-mcp",
 ]
