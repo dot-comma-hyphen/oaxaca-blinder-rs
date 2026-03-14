@@ -10,7 +10,6 @@ COPY --from=builder /app/target/release/meridian-mcp /usr/local/bin/meridian-mcp
 
 ENV PORT=8084
 ENV MCP_TRANSPORT=sse
-ENV MCP_API_KEY=dev-secret-key
 
 EXPOSE 8084
 

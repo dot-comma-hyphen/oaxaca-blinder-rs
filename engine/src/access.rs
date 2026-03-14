@@ -45,7 +45,7 @@ pub async fn validate_access_code_inner(code: &str, registry_url: &str) -> Resul
     if let Some(config) = registry.get(&hashed_code) {
         match config.status {
             PartnerStatus::Active => Ok(config.clone()),
-            PartnerStatus::Suspended => Ok(config.clone()),
+            PartnerStatus::Suspended => bail!("Partner access is suspended"),
         }
     } else {
         bail!("Invalid access code")

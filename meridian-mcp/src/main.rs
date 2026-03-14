@@ -173,12 +173,18 @@ async fn main() -> Result<()> {
 
     if is_sse {
         let port = args.port.unwrap_or(8084);
+        if args.api_key.is_none() {
+            tracing::warn!("MCP_API_KEY is not set! Server is running without authentication.");
+        }
         info!(
             "Starting Meridian MCP server in HTTP/SSE mode on port {}",
             port
         );
         run_sse_server(port, args.api_key).await?;
     } else {
+        if args.api_key.is_none() {
+            tracing::warn!("MCP_API_KEY is not set! Server is running without authentication.");
+        }
         info!("Starting Meridian MCP server in Stdio mode");
         run_stdio_server(args.rate_limit).await?;
     }
@@ -210,6 +216,17 @@ async fn run_stdio_server(rate_limit_per_min: u32) -> Result<()> {
             Ok(r) => r,
             Err(e) => {
                 error!("Failed to parse request: {}", e);
+                let response_json = serde_json::to_string(&JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(json!({
+                        "code": -32700,
+                        "message": "Parse error"
+                    })),
+                    id: None,
+                })?;
+                println!("{}", response_json);
+                std::io::stdout().flush()?;
                 continue;
             }
         };
@@ -233,16 +250,21 @@ struct Session {
 struct AppState {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
     api_key: Option<String>,
+    rate_limiter: Arc<governor::DefaultDirectRateLimiter>,
 }
 
 async fn run_sse_server(port: u16, api_key: Option<String>) -> Result<()> {
+    let quota = Quota::per_minute(NonZeroU32::new(60).unwrap());
+    let rate_limiter = Arc::new(RateLimiter::direct(quota));
+
     let state = AppState {
         sessions: Arc::new(RwLock::new(HashMap::new())),
         api_key,
+        rate_limiter,
     };
 
     let cors = CorsLayer::new()
-        .allow_origin(tower_http::cors::Any)
+        .allow_origin("http://127.0.0.1".parse::<axum::http::HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers(tower_http::cors::Any)
         .expose_headers(["Mcp-Session-Id".parse::<axum::http::HeaderName>().unwrap()]);
@@ -257,9 +279,10 @@ async fn run_sse_server(port: u16, api_key: Option<String>) -> Result<()> {
         .route("/messages", post(handle_sse_post))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(Arc::new(state));
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -271,12 +294,20 @@ async fn handle_sse_post(
     axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
     Json(req): Json<JsonRpcRequest>,
 ) -> impl IntoResponse {
+    if state.rate_limiter.check().is_err() {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rate limit exceeded",
+        )
+            .into_response();
+    }
+
     let is_initialize = req.method == "initialize";
     let is_notification = req.id.is_none();
 
     let session_id = if is_initialize {
         let new_id = Uuid::new_v4().to_string();
-        let mut sessions = state.sessions.write().unwrap();
+        let mut sessions = state.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.insert(
             new_id.clone(),
             Session {
@@ -295,7 +326,7 @@ async fn handle_sse_post(
             .or_else(|| query.get("session_id").cloned());
 
         if let Some(id) = header_id.or(query_id) {
-            let sessions = state.sessions.read().unwrap();
+            let sessions = state.sessions.read().unwrap_or_else(|e| e.into_inner());
             if sessions.contains_key(&id) {
                 Some(id)
             } else {
@@ -354,7 +385,7 @@ async fn handle_sse_post(
 }
 
 async fn handle_sse_get(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     if headers.get("mcp-session-id").is_some() {
@@ -368,10 +399,22 @@ async fn handle_sse_get(
     let scheme = "http";
     let endpoint_url = format!("{}://{}/sse", scheme, host);
 
+    let new_id = Uuid::new_v4().to_string();
+    {
+        let mut sessions = state.sessions.write().unwrap_or_else(|e| e.into_inner());
+        sessions.insert(
+            new_id.clone(),
+            Session {
+                id: new_id.clone(),
+                created_at: Instant::now(),
+            },
+        );
+    }
+
     let endpoint_event = Event::default().event("endpoint").data(format!(
         "{}?sessionId={}",
         endpoint_url,
-        Uuid::new_v4()
+        new_id
     ));
 
     let pending = stream::pending::<Result<Event, std::convert::Infallible>>();
@@ -388,7 +431,7 @@ async fn handle_sse_delete(
 ) -> impl IntoResponse {
     if let Some(id_val) = headers.get("mcp-session-id") {
         if let Ok(id) = id_val.to_str() {
-            let mut sessions = state.sessions.write().unwrap();
+            let mut sessions = state.sessions.write().unwrap_or_else(|e| e.into_inner());
             if sessions.remove(id).is_some() {
                 return StatusCode::OK.into_response();
             }
@@ -529,7 +572,18 @@ async fn handle_protocol(req: JsonRpcRequest) -> Option<JsonRpcResponse> {
             ]
         })),
         "tools/call" => handle_tool_call(req.params).await,
-        _ => Err(anyhow!("Method not found: {}", req.method)),
+        "ping" => Ok(json!({})),
+        _ => {
+            return Some(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(json!({
+                    "code": -32601,
+                    "message": format!("Method not found: {}", req.method)
+                })),
+                id: req.id,
+            });
+        }
     };
 
     if is_notification {
@@ -546,15 +600,22 @@ async fn handle_protocol(req: JsonRpcRequest) -> Option<JsonRpcResponse> {
             error: None,
             id: req.id,
         }),
-        Err(e) => Some(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(json!({
-                "code": -32603,
-                "message": e.to_string()
-            })),
-            id: req.id,
-        }),
+        Err(e) => {
+            let code = if e.to_string().starts_with("Method not found:") {
+                -32601
+            } else {
+                -32603
+            };
+            Some(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(json!({
+                    "code": code,
+                    "message": e.to_string()
+                })),
+                id: req.id,
+            })
+        }
     }
 }
 
@@ -570,8 +631,11 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
 
     match name {
         "forensic_decomposition" => {
-            let mcp_params: McpDecompositionParams = serde_json::from_value(arguments.clone())?;
-            let res = decompose_inner(mcp_params.into()).map_err(|e| anyhow!(e))?;
+            let mut mcp_params: McpDecompositionParams = serde_json::from_value(arguments.clone())?;
+            if let Some(reps) = mcp_params.bootstrap_reps {
+                mcp_params.bootstrap_reps = Some(reps.min(10000));
+            }
+            let req = mcp_params.into(); let res = tokio::task::spawn_blocking(move || decompose_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "simulate_remediation" => {
@@ -603,27 +667,36 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
                     _ => RangeTarget::Midpoint,
                 }),
             };
-            let res = optimize_inner(req).map_err(|e| anyhow!(e))?;
+            let res = tokio::task::spawn_blocking(move || optimize_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "verify_adjustments" => {
-            let p: McpVerificationParams = serde_json::from_value(arguments.clone())?;
-            let res = verify_inner(p.into()).map_err(|e| anyhow!(e))?;
+            let mut p: McpVerificationParams = serde_json::from_value(arguments.clone())?;
+            if let Some(reps) = p.decomposition_params.bootstrap_reps {
+                p.decomposition_params.bootstrap_reps = Some(reps.min(10000));
+            }
+            let req = p.into(); let res = tokio::task::spawn_blocking(move || verify_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "check_defensibility" => {
-            let p: McpVerificationParams = serde_json::from_value(arguments.clone())?;
-            let res = check_defensibility_inner(p.into()).map_err(|e| anyhow!(e))?;
+            let mut p: McpVerificationParams = serde_json::from_value(arguments.clone())?;
+            if let Some(reps) = p.decomposition_params.bootstrap_reps {
+                p.decomposition_params.bootstrap_reps = Some(reps.min(10000));
+            }
+            let req = p.into(); let res = tokio::task::spawn_blocking(move || check_defensibility_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "generate_efficient_frontier" => {
-            let mcp_params: McpDecompositionParams = serde_json::from_value(arguments.clone())?;
+            let mut mcp_params: McpDecompositionParams = serde_json::from_value(arguments.clone())?;
+            if let Some(reps) = mcp_params.bootstrap_reps {
+                mcp_params.bootstrap_reps = Some(reps.min(10000));
+            }
             let req = EfficientFrontierRequest {
                 decomposition_params: mcp_params.into(),
                 steps: Some(50),
                 max_budget: None,
             };
-            let res = calculate_efficient_frontier_inner(req).map_err(|e| anyhow!(e))?;
+            let res = tokio::task::spawn_blocking(move || calculate_efficient_frontier_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         _ => Err(anyhow!("Unknown tool: {}", name)),
