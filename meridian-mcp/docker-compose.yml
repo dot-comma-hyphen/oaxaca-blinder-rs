@@ -11,5 +11,4 @@ services:
     environment:
       - PORT=8084
       - MCP_TRANSPORT=sse
-      - MCP_API_KEY=dev-secret-key
     restart: unless-stopped
