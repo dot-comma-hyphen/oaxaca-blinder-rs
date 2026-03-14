@@ -11,10 +11,11 @@ pub fn normalize_categorical_coefficients(
 ) -> HashMap<String, f64> {
     let mut base_coeffs = HashMap::new();
     for var in categorical_vars {
+        let prefix = format!("{}_", var);
         let dummy_indices: Vec<usize> = predictor_names
             .iter()
             .enumerate()
-            .filter(|(_, name)| name.starts_with(&format!("{}_", var)))
+            .filter(|(_, name)| name.starts_with(&prefix))
             .map(|(i, _)| i)
             .collect();
 
