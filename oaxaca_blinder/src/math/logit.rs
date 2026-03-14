@@ -115,3 +115,89 @@ pub fn logit(
         iterations: max_iter,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{DMatrix, DVector};
+
+    #[test]
+    fn test_logit_simple_regression() {
+        let x = DMatrix::from_vec(
+            11,
+            2,
+            vec![
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, // Intercept
+                -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, // X
+            ],
+        );
+        let y = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
+        let result = logit(&y, &x, 100, 1e-6).expect("Logit calculation failed on valid data");
+        let coeffs = result.coefficients;
+
+        assert_eq!(coeffs.len(), 2);
+        // values from statsmodels
+        assert!((coeffs[0] - 0.6533055).abs() < 1e-4);
+        assert!((coeffs[1] - 1.3046124).abs() < 1e-4);
+        assert!(result.converged);
+        assert!(result.iterations > 0);
+    }
+
+    #[test]
+    fn test_logit_perfect_separation() {
+        let x = DMatrix::from_vec(
+            6,
+            2,
+            vec![
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, // Intercept
+                -3.0, -2.0, -1.0, 1.0, 2.0, 3.0, // X
+            ],
+        );
+        let y = DVector::from_vec(vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+
+        let _result = logit(&y, &x, 100, 1e-6);
+        // Perfect separation might cause an inversion error or hit max iterations depending on regularization
+        // The main thing is that it doesn't crash or panic.
+    }
+
+    #[test]
+    fn test_logit_singular_matrix() {
+        let x = DMatrix::from_vec(
+            4,
+            2,
+            vec![
+                1.0, 1.0, 1.0, 1.0, // Col 1
+                1.0, 1.0, 1.0, 1.0, // Col 2 (same as Col 1)
+            ],
+        );
+        let y = DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]);
+
+        let result = logit(&y, &x, 100, 1e-6);
+        assert!(result.is_err());
+        match result {
+            Err(crate::OaxacaError::NalgebraError(msg)) => {
+                assert!(msg.contains("Failed to invert Information Matrix"));
+            }
+            Err(_) => panic!("Expected NalgebraError"),
+            Ok(_) => panic!("Expected an error for singular matrix"),
+        }
+    }
+
+    #[test]
+    fn test_logit_max_iterations() {
+        let x = DMatrix::from_vec(
+            11,
+            2,
+            vec![
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, // Intercept
+                -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, // X
+            ],
+        );
+        let y = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
+        let result = logit(&y, &x, 1, 1e-6).expect("Logit calculation failed");
+        assert!(!result.converged);
+        assert_eq!(result.iterations, 1);
+    }
+}
