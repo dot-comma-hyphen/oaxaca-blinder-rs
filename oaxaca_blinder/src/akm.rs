@@ -269,17 +269,19 @@ fn solve_akm(
     let worker_indices: Vec<u32> = workers
         .str()?
         .into_iter()
-        .map(|opt| worker_map.get(opt.unwrap()).unwrap().clone())
-        .collect();
+        .map(|opt| opt.ok_or_else(|| AkmError::NotEnoughData("Null worker ID encountered".to_string()))).collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|id| worker_map.get(id).ok_or_else(|| AkmError::NotEnoughData("Worker ID not in map".to_string())).map(|v| v.clone())).collect::<Result<Vec<_>, _>>()?;
 
     let firm_indices: Vec<u32> = firms
         .str()?
         .into_iter()
-        .map(|opt| firm_map.get(opt.unwrap()).unwrap().clone())
-        .collect();
+        .map(|opt| opt.ok_or_else(|| AkmError::NotEnoughData("Null firm ID encountered".to_string()))).collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|id| firm_map.get(id).ok_or_else(|| AkmError::NotEnoughData("Firm ID not in map".to_string())).map(|v| v.clone())).collect::<Result<Vec<_>, _>>()?;
 
     let y_series = df.column(outcome)?.f64()?;
-    let y: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
+    let y: Vec<f64> = y_series.into_iter().map(|opt| opt.ok_or_else(|| AkmError::NotEnoughData("Null outcome encountered".to_string()))).collect::<Result<Vec<_>, _>>()?;
 
     // Prepare X (controls)
     let mut x_vectors: Vec<Vec<f64>> = Vec::new();
@@ -550,21 +552,6 @@ fn recover_fe(
             }
         }
 
-        // Normalize one firm to zero (e.g., first firm) to identify the model
-        // Or mean center? Usually one reference is dropped.
-        // Let's center firm effects to mean zero and absorb the constant into alpha?
-        // Or just set psi[0] = 0.
-        // The prompt says: "Note that one reference firm (or worker) must be normalized to zero"
-        let ref_val = psi[0];
-        for j in 0..n_firms {
-            psi[j] -= ref_val;
-        }
-        // Add ref_val to alpha to keep prediction same?
-        // Y = alpha + psi. If psi -> psi - c, then alpha -> alpha + c.
-        for i in 0..n_workers {
-            alpha[i] += ref_val;
-        }
-
         // Check convergence
         diff = 0.0;
         for i in 0..n_workers {
@@ -583,6 +570,15 @@ fn recover_fe(
             "recover_fe failed to converge within {} iterations",
             max_iters
         )));
+    }
+
+    // Normalize one firm to zero (e.g., first firm) to identify the model
+    let ref_val = psi[0];
+    for j in 0..n_firms {
+        psi[j] -= ref_val;
+    }
+    for i in 0..n_workers {
+        alpha[i] += ref_val;
     }
 
     Ok((alpha, psi))

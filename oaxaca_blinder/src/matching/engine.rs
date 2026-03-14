@@ -72,7 +72,7 @@ impl MatchingEngine {
         // Extract outcomes
         let get_vec = |d: &DataFrame| -> Result<DVector<f64>, OaxacaError> {
             let s = d.column(&self.outcome_col)?.f64()?;
-            let v: Vec<f64> = s.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
+            let v: Vec<f64> = s.into_iter().map(|opt| opt.ok_or_else(|| OaxacaError::InvalidGroupVariable("Null values in outcomes".to_string()))).collect::<Result<Vec<_>, _>>()?;
             Ok(DVector::from_vec(v))
         };
 

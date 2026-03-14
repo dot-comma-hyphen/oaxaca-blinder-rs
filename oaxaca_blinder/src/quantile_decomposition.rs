@@ -90,7 +90,7 @@ impl QuantileDecompositionBuilder {
         all_dummy_names: &[String],
     ) -> Result<(Array2<f64>, Array1<f64>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
-        let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.unwrap_or(0.0)).collect();
+        let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.ok_or_else(|| OaxacaError::InvalidGroupVariable("Null outcome encountered".to_string()))).collect::<Result<Vec<_>, _>>()?;
         let y = Array1::from_vec(y_vec);
 
         let mut final_predictors: Vec<String> = vec!["intercept".to_string()];
@@ -149,7 +149,7 @@ impl QuantileDecompositionBuilder {
         if data.is_empty() {
             return 0.0;
         }
-        data.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+        data.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let index = (data.len() as f64 * quantile) as usize;
         data[index.min(data.len() - 1)]
     }
@@ -301,28 +301,30 @@ impl QuantileDecompositionBuilder {
         let group_a_name_owned = group_a_name.to_string();
         let group_b_name_owned = group_b_name.to_string();
 
+        let df_a_global = df
+            .filter(
+                &df.column(&self.group)
+                    .unwrap()
+                    .as_materialized_series()
+                    .equal(group_a_name_owned.as_str())
+                    .unwrap(),
+            )
+            .unwrap();
+        let df_b_global = df
+            .filter(
+                &df.column(&self.group)
+                    .unwrap()
+                    .as_materialized_series()
+                    .equal(group_b_name_owned.as_str())
+                    .unwrap(),
+            )
+            .unwrap();
+
         let bootstrap_results: Vec<SinglePassResult> = (0..self.bootstrap_reps)
             .into_par_iter()
             .filter_map(|_| {
-                // Stratified sampling: Sample from Group A and Group B separately
-                let df_a = df
-                    .filter(
-                        &df.column(&self.group)
-                            .ok()?
-                            .as_materialized_series()
-                            .equal(group_a_name_owned.as_str())
-                            .ok()?,
-                    )
-                    .ok()?;
-                let df_b = df
-                    .filter(
-                        &df.column(&self.group)
-                            .ok()?
-                            .as_materialized_series()
-                            .equal(group_b_name_owned.as_str())
-                            .ok()?,
-                    )
-                    .ok()?;
+                let df_a = df_a_global.clone();
+                let df_b = df_b_global.clone();
 
                 let sample_a = df_a
                     .sample_n_literal(df_a.height(), true, false, None)

@@ -48,7 +48,7 @@ pub fn heckman_two_step(
 
     // 2. Calculate Inverse Mills Ratio (IMR) for the selected sample
     // IMR = phi(z'gamma) / Phi(z'gamma)
-    let normal = Normal::new(0.0, 1.0).unwrap();
+    let normal = Normal::new(0.0, 1.0).map_err(|e| OaxacaError::NalgebraError(format!("Failed to create normal distribution: {}", e)))?;
     let z_gamma = x_select_subset * &gamma;
 
     let imr_vec: Vec<f64> = z_gamma

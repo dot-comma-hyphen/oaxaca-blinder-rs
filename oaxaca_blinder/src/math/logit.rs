@@ -42,7 +42,7 @@ pub fn logit(
 
     for iter in 0..max_iter {
         let xb = x * &beta;
-        let probs: DVector<f64> = xb.map(sigmoid);
+        let probs: DVector<f64> = xb.map(|z| sigmoid(z).clamp(1e-10, 1.0 - 1e-10));
 
         // Gradient: X' * (y - p)
         let error = y - &probs;
@@ -109,7 +109,7 @@ pub fn logit(
 
     // Calculate final probs
     let xb = x * &beta;
-    let probs = xb.map(sigmoid);
+    let probs = xb.map(|z| sigmoid(z).clamp(1e-10, 1.0 - 1e-10));
 
     Ok(LogitResult {
         coefficients: beta,
