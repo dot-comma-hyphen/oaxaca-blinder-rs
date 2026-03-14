@@ -69,7 +69,6 @@ impl LogisticRegression {
 
             // Compute Hessian efficiently
             // H_jk = sum_i (x_ij * x_ik * w_i)
-            // let mut hessian = DMatrix::zeros(n_features, n_features);
 
             // This loop is O(N * K^2), acceptable if K is small.
             // For larger K, matrix multiplication is better.
