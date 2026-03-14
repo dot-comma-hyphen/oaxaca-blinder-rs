@@ -143,3 +143,66 @@ pub fn probit(
         iterations,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{DMatrix, DVector};
+
+    #[test]
+    fn test_probit_basic_convergence() {
+        // Small synthetic dataset
+        // Y = [0, 0, 1, 1]
+        // X = [1, -1]
+        //     [1, -0.5]
+        //     [1, 0.5]
+        //     [1, 1]
+        // A dataset that is NOT perfectly separated.
+        // Perfect separation causes probit coefficients to go to infinity (which prevents convergence).
+        let y = DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0]);
+        let x = DMatrix::from_row_slice(
+            6,
+            2,
+            &[
+                1.0, -1.5,
+                1.0, -0.5, // 1 but x is low
+                1.0, 0.0,
+                1.0, 0.5,
+                1.0, 1.0,  // 0 but x is high
+                1.0, 1.5,
+            ],
+        );
+
+        let result = probit(&y, &x, 100, 1e-6).expect("Probit regression failed");
+
+        assert!(result.converged, "Probit failed to converge");
+        assert!(result.iterations > 0, "Should take at least 1 iteration");
+        assert_eq!(result.coefficients.len(), 2, "Should have 2 coefficients");
+        assert_eq!(result.vcov.nrows(), 2, "VCOV should be 2x2");
+        assert_eq!(result.vcov.ncols(), 2, "VCOV should be 2x2");
+
+        // The second column correlates perfectly with Y, so coefficient should be positive
+        assert!(result.coefficients[1] > 0.0, "Coefficient for X2 should be positive");
+    }
+
+    #[test]
+    fn test_probit_non_convergence() {
+        let y = DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]);
+        let x = DMatrix::from_row_slice(
+            4,
+            2,
+            &[
+                1.0, -1.0,
+                1.0, -0.5,
+                1.0, 0.5,
+                1.0, 1.0,
+            ],
+        );
+
+        // Max iter = 1, extremely small tolerance, won't converge
+        let result = probit(&y, &x, 1, 1e-15).expect("Probit regression failed");
+
+        assert!(!result.converged, "Should not converge in 1 iteration");
+        assert_eq!(result.iterations, 1, "Should have stopped after 1 iteration");
+    }
+}
