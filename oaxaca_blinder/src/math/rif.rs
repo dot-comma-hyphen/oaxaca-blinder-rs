@@ -19,12 +19,20 @@ pub fn calculate_rif(series: &Series, quantile: f64) -> Result<Series, PolarsErr
         return Ok(series.clone()); // Not enough data to estimate density
     }
 
-    // 1. Calculate Sample Quantile (Q_tau)
+    // 1. Calculate Sample Quantile (Q_tau) using R Type 7 interpolation
     let mut sorted_y = y_vec.clone();
-    sorted_y.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let q_index = (quantile * n).ceil() as usize;
-    let q_index = if q_index == 0 { 0 } else { q_index - 1 };
-    let q_tau = sorted_y[q_index.min(sorted_y.len() - 1)];
+    sorted_y.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let h = (n - 1.0) * quantile;
+    let h_floor = h.floor();
+    let h_ceil = h.ceil();
+    let frac = h - h_floor;
+    let q_tau = if h_floor == h_ceil {
+        sorted_y[h_floor as usize]
+    } else {
+        let y0 = sorted_y[h_floor as usize];
+        let y1 = sorted_y[h_ceil as usize];
+        y0 + frac * (y1 - y0)
+    };
 
     // 2. Estimate Density at Q_tau using Gaussian Kernel
     // Bandwidth selection (Silverman's Rule of Thumb)

@@ -24,7 +24,7 @@ pub fn bootstrap_stats(estimates: &[f64], _point_estimate: f64) -> (f64, f64, (f
 
     // Confidence interval using the percentile method.
     let mut sorted_estimates = estimates.to_vec();
-    sorted_estimates.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted_estimates.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let lower_idx = (0.025 * n).floor() as usize;
     let upper_idx = ((0.975 * n).floor() as usize).min(estimates.len().saturating_sub(1));
     let ci_lower = sorted_estimates.get(lower_idx).copied().unwrap_or(f64::NAN);

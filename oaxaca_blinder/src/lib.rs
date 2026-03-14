@@ -341,11 +341,11 @@ impl HeckmanEstimator {
         df_group: &DataFrame,
     ) -> Result<(DMatrix<f64>, DVector<f64>, DMatrix<f64>), OaxacaError> {
         let y_sel_series = df_group.column(&self.selection_outcome)?.f64()?;
-        let y_sel_vec: Vec<f64> = y_sel_series
+        let y_sel_vec: Result<Vec<f64>, OaxacaError> = y_sel_series
             .into_iter()
-            .map(|opt| opt.expect("Selection outcome should be clean"))
+            .map(|opt| opt.ok_or_else(|| OaxacaError::InvalidGroupVariable("Selection outcome contains nulls".to_string())))
             .collect();
-        let y_sel = DVector::from_vec(y_sel_vec);
+        let y_sel = DVector::from_vec(y_sel_vec?);
 
         let mut x_sel_df = df_group.select(&self.selection_predictors)?;
         let intercept = Series::new("__ob_intercept__".into(), vec![1.0; df_group.height()]);
@@ -1229,28 +1229,30 @@ impl OaxacaBuilder {
         let group_a_name_owned = group_a_name.to_string();
         let group_b_name_owned = group_b_name.to_string();
 
+        let df_a_global = df
+            .filter(
+                &df.column(&self.group)
+                    .unwrap()
+                    .as_materialized_series()
+                    .equal(group_a_name_owned.as_str())
+                    .unwrap(),
+            )
+            .unwrap();
+        let df_b_global = df
+            .filter(
+                &df.column(&self.group)
+                    .unwrap()
+                    .as_materialized_series()
+                    .equal(group_b_name_owned.as_str())
+                    .unwrap(),
+            )
+            .unwrap();
+
         let bootstrap_results: Vec<SinglePassResult> = (0..self.bootstrap_reps)
             .into_par_iter()
             .filter_map(|_| {
-                // Stratified sampling: Sample from Group A and Group B separately
-                let df_a = df
-                    .filter(
-                        &df.column(&self.group)
-                            .ok()?
-                            .as_materialized_series()
-                            .equal(group_a_name_owned.as_str())
-                            .ok()?,
-                    )
-                    .ok()?;
-                let df_b = df
-                    .filter(
-                        &df.column(&self.group)
-                            .ok()?
-                            .as_materialized_series()
-                            .equal(group_b_name_owned.as_str())
-                            .ok()?,
-                    )
-                    .ok()?;
+                let df_a = df_a_global.clone();
+                let df_b = df_b_global.clone();
 
                 let sample_a = df_a
                     .sample_n_literal(df_a.height(), true, false, None)

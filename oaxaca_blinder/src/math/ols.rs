@@ -57,6 +57,12 @@ pub fn ols(
 
         // Alternative: Transform data X* = \sqrt{W}X, y* = \sqrt{W}y
         // Then run OLS on X*, y*
+        for weight in w.iter() {
+            if *weight < 0.0 {
+                return Err(OaxacaError::InvalidGroupVariable("Weights cannot be negative".to_string()));
+            }
+        }
+
         let w_sqrt = w.map(|v| v.sqrt());
 
         // Scale X by sqrt(weights) row-wise
@@ -72,12 +78,7 @@ pub fn ols(
         let xtx = x_w.transpose() * &x_w;
         let xty = x_w.transpose() * &y_w;
 
-        // Effective sample size? Usually just sum of weights or N?
-        // For variance estimation in survey data, it's complicated.
-        // But for standard WLS (heteroskedasticity), we use N.
-        // If weights are frequency weights, we use sum(w).
-        // Let's assume sampling weights/frequency weights -> sum(w).
-        let n = w.sum();
+        let n = x.nrows() as f64;
 
         (xtx, xty, n)
     } else {

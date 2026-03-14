@@ -139,7 +139,7 @@ pub fn run_dfl(
 
     for i in 0..df.height() {
         let is_group_b = y[i] == 0.0;
-        let val = outcome_series.get(i).unwrap_or(0.0);
+        let val = outcome_series.get(i).ok_or_else(|| OaxacaError::InvalidGroupVariable("Null outcome encountered in DFL".to_string()))?;
 
         if is_group_b {
             let p_x = probs[i];

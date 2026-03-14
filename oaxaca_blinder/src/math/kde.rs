@@ -49,7 +49,7 @@ pub fn silverman_bandwidth(data: &[f64]) -> f64 {
 
     // IQR
     let mut sorted = data.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let q1 = sorted[(n * 0.25) as usize];
     let q3 = sorted[(n * 0.75) as usize];
     let iqr = q3 - q1;
