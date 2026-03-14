@@ -188,7 +188,7 @@ fn run_mean_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>
             .categorical
             .as_ref()
             .map(|v| v.iter().map(AsRef::as_ref).collect())
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
         let mut b = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference);
         b.predictors(&predictors)
             .categorical_predictors(&categorical_predictors);
@@ -241,7 +241,7 @@ fn run_quantile_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Er
         .categorical
         .as_ref()
         .map(|v| v.iter().map(AsRef::as_ref).collect())
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
 
     let mut builder =
         QuantileDecompositionBuilder::new(df, &args.outcome, &args.group, &args.reference);
@@ -340,7 +340,7 @@ fn run_report(args: ReportArgs) -> Result<(), Box<dyn Error>> {
         .categorical
         .as_ref()
         .map(|v| v.iter().map(AsRef::as_ref).collect())
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
     let results = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference)
         .predictors(&predictors)
         .categorical_predictors(&categorical_predictors)

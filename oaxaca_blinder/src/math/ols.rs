@@ -93,7 +93,7 @@ pub fn ols(
     // X'X should be positive definite if there is no perfect multicollinearity.
 
     let k = x.ncols() as f64;
-    let n_obs_f = n_obs as f64;
+    let n_obs_f = n_obs;
     if n_obs_f <= k {
         return Err(OaxacaError::InsufficientData(format!(
             "Insufficient data for OLS calculation: n_obs ({}) must be strictly greater than k ({})",

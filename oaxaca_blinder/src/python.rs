@@ -222,19 +222,7 @@ impl PyOaxacaBlinder {
         selection_outcome: Option<String>,
         selection_predictors: Option<Vec<String>>,
     ) -> Self {
-        // SAFETY: Extreme version mismatch workaround.
-        // We cast the pointer of the old DataFrame to the new DataFrame type.
-        // This relies on the hope that the fields accessed are compatible or that we get lucky.
-        // User insisted on these specific incompatible versions.
-        let df_old_version = dataframe.0;
-        let df: DataFrame = unsafe {
-            let ptr = &df_old_version as *const _ as *const DataFrame;
-            std::ptr::read(ptr)
-        };
-        // We must forget the old one to avoid double-free causing segfaults,
-        // effectively transferring ownership to the new type.
-        std::mem::forget(df_old_version);
-
+        let df: DataFrame = dataframe.0;
         Self {
             dataframe: df,
             outcome,

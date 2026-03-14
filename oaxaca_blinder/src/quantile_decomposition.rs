@@ -141,7 +141,7 @@ impl QuantileDecompositionBuilder {
             dummy_vars.push(dummy_series);
         }
         let cols: Vec<Column> = dummy_vars.into_iter().map(Column::Series).collect();
-        Ok(DataFrame::new(cols).map_err(OaxacaError::from)?)
+        DataFrame::new(cols).map_err(OaxacaError::from)
     }
 
     /// (Private) Calculates the empirical quantile of a slice of numbers.

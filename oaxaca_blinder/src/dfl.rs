@@ -85,15 +85,13 @@ pub fn run_dfl(
                 nulls_last: false,
                 ..Default::default()
             })?;
-            for val_opt in unique_vals.str()?.into_iter().skip(1) {
-                if let Some(val) = val_opt {
-                    let dummy_name = format!("{}_{}", col.name(), val);
-                    let ca = col.as_materialized_series().equal(val).map_err(OaxacaError::from)?;
-                    let mut dummy_series = ca.into_series();
-                    dummy_series = dummy_series.cast(&DataType::Float64)?;
-                    dummy_series.rename(dummy_name.as_str().into());
-                    x_cols.push(Column::Series(dummy_series));
-                }
+            for val in unique_vals.str()?.into_iter().skip(1).flatten() {
+                let dummy_name = format!("{}_{}", col.name(), val);
+                let ca = col.as_materialized_series().equal(val).map_err(OaxacaError::from)?;
+                let mut dummy_series = ca.into_series();
+                dummy_series = dummy_series.cast(&DataType::Float64)?;
+                dummy_series.rename(dummy_name.as_str().into());
+                x_cols.push(Column::Series(dummy_series));
             }
         } else {
             let numeric_col = col.cast(&DataType::Float64)?;

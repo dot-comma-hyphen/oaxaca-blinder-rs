@@ -7,6 +7,12 @@ pub struct LogisticRegression {
     pub coefficients: DVector<f64>,
 }
 
+impl Default for LogisticRegression {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LogisticRegression {
     pub fn new() -> Self {
         Self {

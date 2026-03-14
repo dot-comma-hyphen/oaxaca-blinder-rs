@@ -162,8 +162,8 @@ impl MatchingEngine {
             // DMatrix stores row-major? No, we constructed it.
             // X is N x K. L is K x K.
             // X * L
-            x_treated = x_treated * &l;
-            x_control = x_control * &l;
+            x_treated *= &l;
+            x_control *= &l;
         }
 
         // 5. Build Tree on Control
@@ -199,10 +199,8 @@ impl MatchingEngine {
 
         // Treated units get weight 1
         let treated_indices = treated_df.column("orig_index")?.u32()?;
-        for idx in treated_indices {
-            if let Some(i) = idx {
-                final_weights[i as usize] = 1.0;
-            }
+        for i in treated_indices.into_iter().flatten() {
+            final_weights[i as usize] = 1.0;
         }
 
         // Control units get calculated weights

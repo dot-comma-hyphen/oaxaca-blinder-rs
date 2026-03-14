@@ -1,3 +1,4 @@
+import polars as pl
 import pandas as pd
 import numpy as np
 from oaxaca_blinder import OaxacaBlinder
@@ -34,8 +35,8 @@ def create_selection_data():
         'group': group,
         'education': education,
         'experience': experience,
-        'family_size': family_size,
-        'employed': participation
+        'family_size': family_size.astype(float),
+        'employed': participation.astype(float)
     })
     
     # Set wage to NaN if not employed
@@ -48,7 +49,7 @@ def test_heckman():
     df = create_selection_data()
     
     model = OaxacaBlinder(
-        df,
+        pl.from_pandas(df),
         outcome='wage',
         group='group',
         reference_group='GroupA',

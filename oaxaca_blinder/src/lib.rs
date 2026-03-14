@@ -1138,7 +1138,7 @@ impl OaxacaBuilder {
                     .collect::<Vec<_>>(),
             )
             .bootstrap_reps(self.bootstrap_reps)
-            .reference_coefficients(self.reference_coeffs.clone())
+            .reference_coefficients(self.reference_coeffs)
             .normalize(
                 &self
                     .normalization_vars

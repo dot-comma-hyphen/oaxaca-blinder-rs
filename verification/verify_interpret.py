@@ -1,3 +1,4 @@
+import polars as pl
 import pandas as pd
 import numpy as np
 from oaxaca_blinder import OaxacaBlinder
@@ -19,7 +20,7 @@ def test_interpretation():
     print("Testing Interpretation...")
     df = create_dummy_data()
     model = OaxacaBlinder(
-        df,
+        pl.from_pandas(df),
         outcome='wage',
         group='gender',
         reference_group='Male',

@@ -3,10 +3,12 @@ use serde::Serialize;
 
 /// Represents the choice of reference coefficients for the two-fold decomposition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ReferenceCoefficients {
     /// Use coefficients from the advantaged group.
     GroupA,
     /// Use coefficients from the disadvantaged group.
+    #[default]
     GroupB,
     /// Use coefficients from a model pooled over both groups (Neumark's method).
     Pooled,
@@ -18,11 +20,6 @@ pub enum ReferenceCoefficients {
     Neumark,
 }
 
-impl Default for ReferenceCoefficients {
-    fn default() -> Self {
-        ReferenceCoefficients::GroupB
-    }
-}
 
 /// Holds the results of the three-fold decomposition.
 #[derive(Debug, Clone)]
