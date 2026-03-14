@@ -54,8 +54,8 @@ impl QuantileDecompositionBuilder {
             predictors: Vec::new(),
             categorical_predictors: Vec::new(),
             quantiles: vec![0.1, 0.25, 0.5, 0.75, 0.9],
-            simulations: 1000,
-            bootstrap_reps: 100,
+            simulations: 200,
+            bootstrap_reps: 20,
         }
     }
 

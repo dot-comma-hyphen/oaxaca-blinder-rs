@@ -79,11 +79,11 @@ struct RunArgs {
     quantiles: Option<Vec<f64>>,
 
     /// The number of bootstrap replications for calculating standard errors
-    #[arg(long, default_value_t = 500)]
+    #[arg(long, default_value_t = 50)]
     bootstrap_reps: usize,
 
     /// The number of simulations for the Machado-Mata algorithm (for quantile analysis)
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 200)]
     simulations: usize,
 
     /// R-style formula for the model (e.g., "wage ~ education + experience + C(sector)")

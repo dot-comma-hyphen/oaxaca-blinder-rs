@@ -929,9 +929,10 @@ pub fn calculate_efficient_frontier_inner(
     let n_b = x_b.nrows();
     let n_pooled = n_a + n_b;
     // Check for intercept in feature names
-    let intercept_idx = _feature_names
-        .iter()
-        .position(|f| f.to_lowercase() == "intercept" || f.to_lowercase() == "const");
+    let intercept_idx = _feature_names.iter().position(|f| {
+        let l = f.to_lowercase();
+        l == "intercept" || l == "const" || l == "__ob_intercept__"
+    });
 
     let cols_a = x_a.ncols();
 
