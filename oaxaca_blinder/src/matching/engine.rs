@@ -180,9 +180,14 @@ impl MatchingEngine {
         // 6. Match
         let mut control_counts = vec![0.0; x_control.nrows()];
 
+        // Preallocate a single buffer to hold the current point being queried
+        let mut point = Vec::with_capacity(n_features);
+
         for i in 0..x_treated.nrows() {
             let row = x_treated.row(i);
-            let point: Vec<f64> = row.iter().copied().collect();
+
+            point.clear();
+            point.extend(row.iter().copied());
 
             let nearest = kdtree.nearest(&point, k, &squared_euclidean).map_err(|e| {
                 OaxacaError::DiagnosticError(format!("K-D Tree search error: {}", e))
