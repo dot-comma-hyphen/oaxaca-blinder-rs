@@ -34,7 +34,7 @@ pub fn logit(
     max_iter: usize,
     tol: f64,
 ) -> Result<LogitResult, OaxacaError> {
-    let n = x.nrows();
+    let _n = x.nrows();
     let k = x.ncols();
 
     // Initialize coefficients to zero
@@ -63,11 +63,8 @@ pub fn logit(
 
         let sqrt_w: DVector<f64> = w_diag.map(|w| w.sqrt());
         let mut x_tilde = x.clone();
-        for i in 0..n {
-            let w_i = sqrt_w[i];
-            for j in 0..k {
-                x_tilde[(i, j)] *= w_i;
-            }
+        for mut col in x_tilde.column_iter_mut() {
+            col.component_mul_assign(&sqrt_w);
         }
 
         let hessian = -(x_tilde.transpose() * x_tilde);
