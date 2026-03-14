@@ -600,8 +600,8 @@ fn recover_fe(
     for j in 0..n_firms {
         psi[j] -= ref_val;
     }
-    for i in 0..n_workers {
-        alpha[i] += ref_val;
+    for a in &mut alpha {
+        *a += ref_val;
     }
 
     Ok((alpha, psi))

@@ -133,7 +133,7 @@ mod tests {
             groups.push(if is_a { "Male" } else { "Female" }); // StandardRef=Male
 
             let ed = 12.0 + ((i % 10) as f64) * 0.5; // 12-17
-            let ex = ((i % 30) as f64);
+            let ex = (i % 30) as f64;
             edu.push(ed);
             exp.push(ex);
 
@@ -302,7 +302,7 @@ mod tests {
         use crate::types::{ProposedAdjustment, VerificationRequest};
         use std::collections::HashMap;
 
-        let (csv_data, df) = create_mock_data();
+        let (csv_data, _df) = create_mock_data();
 
         // Find a Group B person (Low Education, Low Experience) who is underpaid.
         // In mock data: B is offset by -5000.

@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2025-0003", # fast-float: Segmentation fault. Upstream in Polars 0.44. No fixed version.
+    "RUSTSEC-2025-0020", # pyo3: Buffer overflow. Upstream in Polars 0.44.
+    "RUSTSEC-2024-0379", # fast-float: Multiple soundness issues.
+    "RUSTSEC-2024-0436", # paste: Unmaintained warning.
+]

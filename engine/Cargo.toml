@@ -8,7 +8,7 @@ authors = ["OpenPay Team <contact@openpay.ai>"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-oaxaca_blinder = { version = "0.2.2" }
+oaxaca_blinder = { path = "../oaxaca_blinder" }
 # openpay_optimization = { version = "0.1.0", default-features = false, features = ["pay_equity"] }
 polars = { version = "0.44", default-features = false, features = ["lazy", "csv", "serde", "diff", "dtype-categorical", "dtype-struct", "strings", "polars-ops", "polars-io"] }
 wasm-bindgen = { version = "0.2", optional = true }
@@ -43,6 +43,7 @@ wasm = [
     "getrandom/wasm_js"
 ]
 
+
 [patch.crates-io]
-crossterm = { path = "./crates/crossterm" }
+# crossterm = { path = "./crates/crossterm" }
 # openpay_optimization = { path = "./vendor/openpay_optimization" }

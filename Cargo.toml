@@ -5,3 +5,6 @@ members = [
     "engine",
     "meridian-mcp",
 ]
+
+[patch.crates-io]
+crossterm = { path = "./engine/crates/crossterm" }

@@ -164,7 +164,6 @@ mod tests {
             }
             Err(_) => {
                 // If it propagates the error, that's also an acceptable outcome for perfect multicollinearity.
-                assert!(true);
             }
         }
     }

@@ -91,9 +91,8 @@ pub use crate::akm::{AkmBuilder, AkmResult};
 pub mod matching;
 pub use crate::matching::engine::MatchingEngine;
 
-#[cfg(feature = "python")]
-#[cfg(feature = "python")]
-pub mod python;
+// #[cfg(feature = "python")]
+// pub mod python;
 
 /// Error type for the `oaxaca_blinder` library.
 #[derive(Debug)]
@@ -335,6 +334,7 @@ impl Estimator for HeckmanEstimator {
 // Helper to reliably convert DVector/Slice to DVector (copy)
 
 impl HeckmanEstimator {
+    #[allow(clippy::type_complexity)]
     fn prepare_selection_data(
         &self,
         df_group: &DataFrame,
@@ -542,6 +542,7 @@ impl OaxacaBuilder {
     /// Exposes the internal data matrices for advanced usage (e.g., optimization).
     /// This method prepares the data (creating dummies, etc.) and returns the matrices for Group A and Group B.
     /// Returns: (X_A, y_A, X_B, y_B, predictor_names)
+    #[allow(clippy::type_complexity)]
     pub fn get_data_matrices(
         &self,
     ) -> Result<
@@ -616,6 +617,7 @@ impl OaxacaBuilder {
         Ok((x_a, y_a, x_b, y_b, predictor_names))
     }
 
+    #[allow(clippy::type_complexity)]
     fn prepare_data(
         &self,
         df: &DataFrame,

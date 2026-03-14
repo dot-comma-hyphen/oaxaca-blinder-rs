@@ -234,7 +234,7 @@ mod tests {
             "y",
             "g",
             "B",
-            &vec!["x_num".to_string(), "x_cat".to_string()],
+            &["x_num".to_string(), "x_cat".to_string()],
         );
         if res.is_err() {
             println!("Error: {:?}", res.as_ref().err());

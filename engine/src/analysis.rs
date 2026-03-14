@@ -69,7 +69,11 @@ pub fn verify_inner(req: VerificationRequest) -> Result<DecompositionResult, Str
                 wage_vec[adj.index] = Some(val + adj.value);
             }
         } else {
-            return Err(format!("Adjustment index {} is out of bounds (dataset has {} rows)", adj.index, wage_vec.len()));
+            return Err(format!(
+                "Adjustment index {} is out of bounds (dataset has {} rows)",
+                adj.index,
+                wage_vec.len()
+            ));
         }
     }
 
@@ -466,14 +470,16 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     // Since we used SVD to solve, we can use SVD to invert if needed, or just standard inversion.
     // X_a is DMatrix.
     let xt_x = x_a.transpose() * &x_a;
-    let r = xt_x.nrows();
-    let c = xt_x.ncols();
-    let cov_matrix = xt_x.try_inverse().ok_or("Covariance matrix is singular, likely due to perfect multicollinearity.")?;
+    let _r = xt_x.nrows();
+    let _c = xt_x.ncols();
+    let cov_matrix = xt_x
+        .try_inverse()
+        .ok_or("Covariance matrix is singular, likely due to perfect multicollinearity.")?;
 
     // 3. Determine Z-score for Confidence Level
     let confidence = req.confidence_level.unwrap_or(0.95);
     // Clamp confidence to reasonable range [0.50, 0.999]
-    let confidence = confidence.max(0.50).min(0.999);
+    let confidence = confidence.clamp(0.50, 0.999);
 
     // Alpha = 1 - confidence
     // Z is inverse CDF at p = 1 - alpha/2
@@ -619,18 +625,29 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
                     0.0
                 };
 
-            let is_eligible = adjust_both && gap_pct >= min_pct;
+                let is_eligible = adjust_both && gap_pct >= min_pct;
 
-            if is_eligible {
+                if is_eligible {
                     potential_adjustments.push(PotentialAdj {
                         matrix_idx: i,
                         source: GroupSource::GroupA,
                         diff,
                         fair_wage: fair,
                         orig_idx: reference_indices[i],
-                    is_eligible: true,
+                        is_eligible: true,
                     });
                 } else if is_forensic {
+                    potential_adjustments.push(PotentialAdj {
+                        matrix_idx: i,
+                        source: GroupSource::GroupA,
+                        diff,
+                        fair_wage: fair,
+                        orig_idx: reference_indices[i],
+                        is_eligible: false,
+                    });
+                }
+            } else if is_forensic {
+                // Include in forensic analysis even if no positive gap
                 potential_adjustments.push(PotentialAdj {
                     matrix_idx: i,
                     source: GroupSource::GroupA,
@@ -638,17 +655,6 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
                     fair_wage: fair,
                     orig_idx: reference_indices[i],
                     is_eligible: false,
-                });
-                }
-        } else if is_forensic {
-            // Include in forensic analysis even if no positive gap
-                potential_adjustments.push(PotentialAdj {
-                    matrix_idx: i,
-                    source: GroupSource::GroupA,
-                    diff,
-                    fair_wage: fair,
-                    orig_idx: reference_indices[i],
-                is_eligible: false,
                 });
             }
         }
@@ -677,7 +683,11 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     let mut current_spend = 0.0;
 
     // Sort Descending by Gap Amount (for Greedy)
-    potential_adjustments.sort_by(|a, b| b.diff.partial_cmp(&a.diff).unwrap_or(std::cmp::Ordering::Equal));
+    potential_adjustments.sort_by(|a, b| {
+        b.diff
+            .partial_cmp(&a.diff)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let wage_series = df
         .column(&req.outcome_variable)
@@ -1035,7 +1045,11 @@ pub fn calculate_efficient_frontier_inner(
         })
         .collect();
 
-    pending_payments.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap_or(std::cmp::Ordering::Equal));
+    pending_payments.sort_by(|a, b| {
+        b.gap
+            .partial_cmp(&a.gap)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let normal = Normal::new(0.0, 1.0).unwrap();
 

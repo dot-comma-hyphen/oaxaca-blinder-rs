@@ -140,9 +140,11 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
     };
 
     let xt_x = x_a.transpose() * &x_a;
-    let r = xt_x.nrows();
-    let c = xt_x.ncols();
-    let cov_matrix = xt_x.try_inverse().ok_or("Covariance matrix is singular, likely due to perfect multicollinearity.")?;
+    let _r = xt_x.nrows();
+    let _c = xt_x.ncols();
+    let cov_matrix = xt_x
+        .try_inverse()
+        .ok_or("Covariance matrix is singular, likely due to perfect multicollinearity.")?;
 
     // Confidence Level (Default 95%)
     let confidence = 0.95;
@@ -261,7 +263,7 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
         }
     }
 
-let mut total_need = 0.0;
+    let mut total_need = 0.0;
     for (idx, (matrix_idx, is_group_a)) in &map_orig_to_matrix {
         if !*is_group_a {
             let actual = wage_array.get(*idx).unwrap_or(0.0);
@@ -289,7 +291,7 @@ let mut total_need = 0.0;
 
     for (idx, val_opt) in wage_array.iter().enumerate() {
         if let Some(v) = val_opt {
-            if let Some(&(matrix_idx, is_group_a)) = map_orig_to_matrix.get(&idx) {
+            if let Some(&(_matrix_idx, is_group_a)) = map_orig_to_matrix.get(&idx) {
                 let mut adjusted_val = v;
                 for adj in &results {
                     if adj.index == idx {
@@ -315,8 +317,16 @@ let mut total_need = 0.0;
     let mean_b = if count_b > 0.0 { sum_b / count_b } else { 0.0 };
     let original_gap = mean_a - mean_b;
 
-    let new_mean_a = if count_a > 0.0 { new_sum_a / count_a } else { 0.0 };
-    let new_mean_b = if count_b > 0.0 { new_sum_b / count_b } else { 0.0 };
+    let new_mean_a = if count_a > 0.0 {
+        new_sum_a / count_a
+    } else {
+        0.0
+    };
+    let new_mean_b = if count_b > 0.0 {
+        new_sum_b / count_b
+    } else {
+        0.0
+    };
     let new_gap = new_mean_a - new_mean_b;
 
     // original_unexplained_gap and new_unexplained_gap
@@ -343,9 +353,16 @@ let mut total_need = 0.0;
         }
     }
 
-    let original_unexplained_gap = if count_b > 0.0 { unexplained_sum_orig / count_b } else { 0.0 };
-    let new_unexplained_gap = if count_b > 0.0 { unexplained_sum_new / count_b } else { 0.0 };
-
+    let original_unexplained_gap = if count_b > 0.0 {
+        unexplained_sum_orig / count_b
+    } else {
+        0.0
+    };
+    let new_unexplained_gap = if count_b > 0.0 {
+        unexplained_sum_new / count_b
+    } else {
+        0.0
+    };
 
     // Prepare Coefficients
     let mut model_coefficients = Vec::new();

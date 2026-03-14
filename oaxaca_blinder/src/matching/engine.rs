@@ -30,6 +30,7 @@ impl MatchingEngine {
     }
 
     /// Prepares the data matrices for treated and control groups.
+    #[allow(clippy::type_complexity)]
     fn prepare_data(
         &self,
     ) -> Result<(DMatrix<f64>, DMatrix<f64>, DVector<f64>, DVector<f64>), OaxacaError> {
@@ -283,7 +284,7 @@ impl MatchingEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matching::distance::EuclideanDistance;
+    // use crate::matching::distance::EuclideanDistance;
 
     // Helper to create a dummy dataframe
     fn create_dummy_df() -> DataFrame {
