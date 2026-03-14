@@ -17,10 +17,10 @@ fn test_weighted_decomposition() -> Result<(), Box<dyn std::error::Error>> {
     // Mean B = 6.0 (Unweighted and Weighted same since weights are 1)
 
     let df = df!(
-        "outcome" => &[10.0, 10.0, 2.0,  5.0, 7.0],
-        "group" =>   &["A",  "A",  "A",  "B", "B"],
-        "weight" =>  &[1.0,  1.0,  10.0, 1.0, 1.0],
-        "x" =>       &[1.0,  1.0,  0.0,  0.0, 1.0]
+        "outcome" => &[10.0, 10.0, 2.0,  5.0, 7.0, 8.0],
+        "group" =>   &["A",  "A",  "A",  "B", "B", "B"],
+        "weight" =>  &[1.0,  1.0,  10.0, 1.0, 1.0, 1.0],
+        "x" =>       &[1.0,  1.0,  0.0,  0.0, 1.0, 1.0]
     )?;
 
     // Unweighted Gap = 7.333 - 6.0 = 1.333
@@ -33,7 +33,7 @@ fn test_weighted_decomposition() -> Result<(), Box<dyn std::error::Error>> {
         .run()?;
 
     println!("Unweighted Gap: {}", res_unweighted.total_gap());
-    assert!((res_unweighted.total_gap() - 1.333).abs() < 0.01);
+    assert!((res_unweighted.total_gap() - 0.666).abs() < 0.01);
 
     // Run weighted
     let res_weighted = OaxacaBuilder::new(df, "outcome", "group", "B")
@@ -43,7 +43,7 @@ fn test_weighted_decomposition() -> Result<(), Box<dyn std::error::Error>> {
         .run()?;
 
     println!("Weighted Gap: {}", res_weighted.total_gap());
-    assert!((res_weighted.total_gap() - (-2.666)).abs() < 0.01);
+    assert!((res_weighted.total_gap() - (-3.333)).abs() < 0.01);
 
     Ok(())
 }

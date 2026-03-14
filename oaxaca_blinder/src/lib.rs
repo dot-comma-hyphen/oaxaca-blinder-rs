@@ -108,6 +108,8 @@ pub enum OaxacaError {
     NalgebraError(String),
     /// Occurs when there is an issue with a diagnostic calculation.
     DiagnosticError(String),
+    /// Occurs when there is not enough data for an operation.
+    InsufficientData(String),
 }
 
 impl From<PolarsError> for OaxacaError {
@@ -124,6 +126,7 @@ impl fmt::Display for OaxacaError {
             OaxacaError::InvalidGroupVariable(s) => write!(f, "Invalid group variable: {}", s),
             OaxacaError::NalgebraError(s) => write!(f, "Nalgebra error: {}", s),
             OaxacaError::DiagnosticError(s) => write!(f, "Diagnostic error: {}", s),
+            OaxacaError::InsufficientData(s) => write!(f, "Insufficient data: {}", s),
         }
     }
 }
