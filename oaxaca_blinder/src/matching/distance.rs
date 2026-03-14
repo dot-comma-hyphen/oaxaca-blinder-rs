@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, DVector};
+use nalgebra::DMatrix;
 use std::fmt::Debug;
 
 /// Euclidean distance metric.
@@ -58,9 +58,23 @@ impl MahalanobisDistance {
     }
 
     pub fn distance(&self, a: &[f64], b: &[f64]) -> f64 {
-        let diff = DVector::from_iterator(a.len(), a.iter().zip(b.iter()).map(|(x, y)| x - y));
-        let dist_squared = diff.transpose() * &self.inv_covariance * &diff;
-        dist_squared[(0, 0)].sqrt()
+        let mut dist_squared = 0.0;
+        let n = a.len();
+        let inv_cov_slice = self.inv_covariance.as_slice();
+
+        for j in 0..n {
+            let diff_j = a[j] - b[j];
+            if diff_j != 0.0 {
+                let mut sum_i = 0.0;
+                let col_offset = j * n;
+                for i in 0..n {
+                    sum_i += inv_cov_slice[col_offset + i] * (a[i] - b[i]);
+                }
+                dist_squared += diff_j * sum_i;
+            }
+        }
+
+        dist_squared.max(0.0).sqrt()
     }
 
     pub fn is_mahalanobis(&self) -> bool {

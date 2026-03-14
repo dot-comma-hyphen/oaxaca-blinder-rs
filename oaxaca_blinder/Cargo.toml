@@ -46,3 +46,10 @@ predicates = "2.1"
 [[bin]]
 name = "oaxaca-cli"
 path = "src/main.rs"
+
+[dev-dependencies.criterion]
+version = "0.5"
+
+[[bench]]
+name = "distance_bench"
+harness = false
