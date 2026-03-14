@@ -2,8 +2,7 @@ use nalgebra::DVector;
 use serde::Serialize;
 
 /// Represents the choice of reference coefficients for the two-fold decomposition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReferenceCoefficients {
     /// Use coefficients from the advantaged group.
     GroupA,
@@ -19,7 +18,6 @@ pub enum ReferenceCoefficients {
     /// Alias for Pooled (Neumark's method).
     Neumark,
 }
-
 
 /// Holds the results of the three-fold decomposition.
 #[derive(Debug, Clone)]

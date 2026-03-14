@@ -72,7 +72,14 @@ impl MatchingEngine {
         // Extract outcomes
         let get_vec = |d: &DataFrame| -> Result<DVector<f64>, OaxacaError> {
             let s = d.column(&self.outcome_col)?.f64()?;
-            let v: Vec<f64> = s.into_iter().map(|opt| opt.ok_or_else(|| OaxacaError::InvalidGroupVariable("Null values in outcomes".to_string()))).collect::<Result<Vec<_>, _>>()?;
+            let v: Vec<f64> = s
+                .into_iter()
+                .map(|opt| {
+                    opt.ok_or_else(|| {
+                        OaxacaError::InvalidGroupVariable("Null values in outcomes".to_string())
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(DVector::from_vec(v))
         };
 
@@ -303,9 +310,7 @@ mod tests {
         let df = create_dummy_df();
         let engine = MatchingEngine::new(df, "treatment", "outcome", &["age", "education"]);
 
-        let weights = engine
-            .match_nearest_neighbor(1, false)
-            .unwrap();
+        let weights = engine.match_nearest_neighbor(1, false).unwrap();
 
         assert_eq!(weights.len(), 5);
 

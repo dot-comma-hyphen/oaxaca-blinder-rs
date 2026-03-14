@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use oaxaca_blinder::matching::distance::MahalanobisDistance;
 use nalgebra::DMatrix;
+use oaxaca_blinder::matching::distance::MahalanobisDistance;
 
 fn bench_mahalanobis(c: &mut Criterion) {
     let n = 10;
@@ -10,9 +10,7 @@ fn bench_mahalanobis(c: &mut Criterion) {
     let b: Vec<f64> = (0..n).map(|i| (i as f64) * 0.5).collect();
 
     c.bench_function("mahalanobis_distance", |b_bench| {
-        b_bench.iter(|| {
-            black_box(metric.distance(black_box(&a), black_box(&b)))
-        });
+        b_bench.iter(|| black_box(metric.distance(black_box(&a), black_box(&b))));
     });
 }
 

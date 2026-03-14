@@ -90,7 +90,14 @@ impl QuantileDecompositionBuilder {
         all_dummy_names: &[String],
     ) -> Result<(Array2<f64>, Array1<f64>, Vec<String>), OaxacaError> {
         let y_series = df.column(&self.outcome)?.f64()?;
-        let y_vec: Vec<f64> = y_series.into_iter().map(|opt| opt.ok_or_else(|| OaxacaError::InvalidGroupVariable("Null outcome encountered".to_string()))).collect::<Result<Vec<_>, _>>()?;
+        let y_vec: Vec<f64> = y_series
+            .into_iter()
+            .map(|opt| {
+                opt.ok_or_else(|| {
+                    OaxacaError::InvalidGroupVariable("Null outcome encountered".to_string())
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let y = Array1::from_vec(y_vec);
 
         let mut final_predictors: Vec<String> = vec!["__ob_intercept__".to_string()];

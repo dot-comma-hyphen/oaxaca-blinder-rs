@@ -59,7 +59,9 @@ pub fn ols(
         // Then run OLS on X*, y*
         for weight in w.iter() {
             if *weight < 0.0 {
-                return Err(OaxacaError::InvalidGroupVariable("Weights cannot be negative".to_string()));
+                return Err(OaxacaError::InvalidGroupVariable(
+                    "Weights cannot be negative".to_string(),
+                ));
             }
         }
 
@@ -148,14 +150,7 @@ mod tests {
 
     #[test]
     fn test_ols_simple_regression() {
-        let x = DMatrix::from_vec(
-            5,
-            2,
-            vec![
-                1.0, 1.0, 1.0, 1.0, 1.0,
-                0.0, 1.0, 2.0, 3.0, 4.0,
-            ],
-        );
+        let x = DMatrix::from_vec(5, 2, vec![1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 2.0, 3.0, 4.0]);
         let y = DVector::from_vec(vec![1.0, 3.0, 5.0, 7.0, 9.0]);
 
         let result = ols(&y, &x, None).expect("OLS calculation failed on valid data");
@@ -168,14 +163,7 @@ mod tests {
 
     #[test]
     fn test_ols_handles_singular_matrix() {
-        let x = DMatrix::from_vec(
-            3,
-            2,
-            vec![
-                1.0, 1.0, 1.0,
-                2.0, 2.0, 2.0,
-            ],
-        );
+        let x = DMatrix::from_vec(3, 2, vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
         let y = DVector::from_vec(vec![1.0, 2.0, 3.0]);
 
         let result = ols(&y, &x, None);
@@ -185,7 +173,9 @@ mod tests {
             Err(OaxacaError::NalgebraError(msg)) => {
                 assert!(msg.contains("Failed to perform Cholesky decomposition"));
             }
-            Err(_) => panic!("Expected a NalgebraError for a singular matrix, but got something else."),
+            Err(_) => {
+                panic!("Expected a NalgebraError for a singular matrix, but got something else.")
+            }
             Ok(_) => panic!("Expected an error, but got Ok"),
         }
     }

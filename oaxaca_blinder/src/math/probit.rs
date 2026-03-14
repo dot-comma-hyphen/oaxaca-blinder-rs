@@ -52,40 +52,47 @@ pub fn probit(
         let z = x * &beta;
 
         // Calculate gradient and Hessian
-        let mut gradient = DVector::zeros(k);
-        h = DMatrix::zeros(k, k);
+        let gradient;
 
-        // We accumulate gradient and Hessian contributions row by row
+        // We calculate gradient and Hessian contributions vectorized
         // Gradient = \sum \lambda_i x_i
-        // Hessian = \sum -\lambda_i (\lambda_i + z_i) x_i x_i' (Observed)
-        // Or Expected Hessian: \sum - \frac{\phi^2}{\Phi(1-\Phi)} x_i x_i'
+        // Expected Hessian: \sum - \frac{\phi^2}{\Phi(1-\Phi)} x_i x_i'
         // Expected Hessian is generally more stable (Fisher Scoring).
 
+        let mut lambda_vec = DVector::zeros(n);
+        let mut sqrt_w_vec = DVector::zeros(n);
+
+        // Calculate lambda and weights vector-wise to avoid row-by-row iteration over x
         for i in 0..n {
-            let xi = x.row(i).transpose();
             let yi = y[i];
             let zi = z[i];
 
             let phi = normal.pdf(zi);
-            let big_phi = normal.cdf(zi);
-
-            // Avoid division by zero
-            let big_phi = big_phi.clamp(1e-10, 1.0 - 1e-10);
+            let big_phi = normal.cdf(zi).clamp(1e-10, 1.0 - 1e-10);
 
             let lambda = if yi > 0.5 {
                 phi / big_phi
             } else {
                 -phi / (1.0 - big_phi)
             };
-
-            // Gradient contribution
-            gradient += &xi * lambda;
+            lambda_vec[i] = lambda;
 
             // Expected Hessian contribution (Fisher Scoring)
             // Weight w_i = \frac{\phi^2}{\Phi(1-\Phi)}
             let weight = (phi * phi) / (big_phi * (1.0 - big_phi));
-            h -= &xi * xi.transpose() * weight;
+            sqrt_w_vec[i] = weight.sqrt();
         }
+
+        // Gradient contribution
+        gradient = x.transpose() * &lambda_vec;
+
+        // Hessian contribution
+        // Multiply each column of X by sqrt_w, then H = - (X_tilde^T * X_tilde)
+        let mut x_tilde = x.clone();
+        for mut col in x_tilde.column_iter_mut() {
+            col.component_mul_assign(&sqrt_w_vec);
+        }
+        h = -(x_tilde.transpose() * x_tilde);
 
         // Newton step: \Delta \beta = -H^{-1} g
         // Since we use Fisher Scoring, H is negative definite.
@@ -105,11 +112,10 @@ pub fn probit(
             }
         };
 
-
-                                            // delta = (-H)^{-1} * g
-                                            // delta = -(H^{-1} * g)
-                                            // Actually: beta_new = beta_old - H^{-1} g.
-                                            // If H is negative definite, -H^{-1} is positive definite.
+        // delta = (-H)^{-1} * g
+        // delta = -(H^{-1} * g)
+        // Actually: beta_new = beta_old - H^{-1} g.
+        // If H is negative definite, -H^{-1} is positive definite.
 
         let step = -&h_inv * &gradient;
         beta += &step;
