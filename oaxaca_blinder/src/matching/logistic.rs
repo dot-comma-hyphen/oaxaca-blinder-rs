@@ -79,10 +79,8 @@ impl LogisticRegression {
 
             // Vectorized approach for Hessian
             let mut x_weighted = x.clone();
-            for i in 0..n_samples {
-                let w = w_vec[i];
-                let mut row = x_weighted.row_mut(i);
-                row *= w;
+            for mut col in x_weighted.column_iter_mut() {
+                col.component_mul_assign(&w_vec);
             }
             let mut hessian = x.transpose() * x_weighted;
 
