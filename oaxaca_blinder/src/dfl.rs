@@ -194,7 +194,6 @@ pub fn run_dfl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polars::prelude::*;
 
     #[test]
     fn test_dfl_with_categorical() -> Result<(), OaxacaError> {
