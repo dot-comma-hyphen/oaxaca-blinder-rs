@@ -1,4 +1,4 @@
-use crate::matching::distance::{DistanceMetric, MahalanobisDistance};
+use crate::matching::distance::MahalanobisDistance;
 use crate::matching::logistic::LogisticRegression;
 use crate::OaxacaError;
 use kdtree::distance::squared_euclidean;
@@ -88,12 +88,11 @@ impl MatchingEngine {
     ///
     /// * `k` - Number of neighbors to match.
     /// * `metric` - Distance metric to use.
-    pub fn match_nearest_neighbor<M: DistanceMetric>(
+    pub fn match_nearest_neighbor(
         &self,
         k: usize,
-        metric: &M,
+        use_mahalanobis: bool,
     ) -> Result<DVector<f64>, OaxacaError> {
-        let use_mahalanobis = metric.is_mahalanobis();
         let weights = self.run_matching(k, use_mahalanobis)?;
         Ok(DVector::from_vec(weights))
     }
@@ -302,7 +301,7 @@ mod tests {
         let engine = MatchingEngine::new(df, "treatment", "outcome", &["age", "education"]);
 
         let weights = engine
-            .match_nearest_neighbor(1, &EuclideanDistance)
+            .match_nearest_neighbor(1, false)
             .unwrap();
 
         assert_eq!(weights.len(), 5);

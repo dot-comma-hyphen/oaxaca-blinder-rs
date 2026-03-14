@@ -269,7 +269,8 @@ fn run_akm_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>>
         .ok_or("Firm ID is required for AKM analysis")?;
     let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
 
-    let builder = AkmBuilder::new(df, &args.outcome, worker_col, firm_col).controls(&predictors);
+    let mut builder = AkmBuilder::new(df, &args.outcome, worker_col, firm_col);
+    builder.controls(&predictors);
     let results = builder
         .run()
         .map_err(|e| format!("AKM estimation failed: {:?}", e))?;

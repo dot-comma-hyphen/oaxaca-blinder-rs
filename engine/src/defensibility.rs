@@ -145,9 +145,7 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
     let xt_x = x_a.transpose() * &x_a;
     let r = xt_x.nrows();
     let c = xt_x.ncols();
-    let cov_matrix = xt_x
-        .try_inverse()
-        .unwrap_or_else(|| DMatrix::identity(r, c));
+    let cov_matrix = xt_x.try_inverse().ok_or("Covariance matrix is singular, likely due to perfect multicollinearity.")?;
 
     // Confidence Level (Default 95%)
     let confidence = 0.95;
@@ -266,6 +264,92 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
         }
     }
 
+let mut total_need = 0.0;
+    for (idx, (matrix_idx, is_group_a)) in &map_orig_to_matrix {
+        if !*is_group_a {
+            let actual = wage_array.get(*idx).unwrap_or(0.0);
+            let features = x_b.row(*matrix_idx).transpose();
+            let fair = (&features.transpose() * &beta_fair)[(0, 0)];
+            if fair > actual {
+                total_need += fair - actual;
+            }
+        }
+    }
+
+    // Calculate metrics
+    let mut total_cost = 0.0;
+    for adj in &results {
+        total_cost += adj.adjustment;
+    }
+
+    let mut sum_a = 0.0;
+    let mut count_a = 0.0;
+    let mut sum_b = 0.0;
+    let mut count_b = 0.0;
+
+    let mut new_sum_a = 0.0;
+    let mut new_sum_b = 0.0;
+
+    for (idx, val_opt) in wage_array.iter().enumerate() {
+        if let Some(v) = val_opt {
+            if let Some(&(matrix_idx, is_group_a)) = map_orig_to_matrix.get(&idx) {
+                let mut adjusted_val = v;
+                for adj in &results {
+                    if adj.index == idx {
+                        adjusted_val = adj.new_wage;
+                        break;
+                    }
+                }
+
+                if is_group_a {
+                    sum_a += v;
+                    new_sum_a += adjusted_val;
+                    count_a += 1.0;
+                } else {
+                    sum_b += v;
+                    new_sum_b += adjusted_val;
+                    count_b += 1.0;
+                }
+            }
+        }
+    }
+
+    let mean_a = if count_a > 0.0 { sum_a / count_a } else { 0.0 };
+    let mean_b = if count_b > 0.0 { sum_b / count_b } else { 0.0 };
+    let original_gap = mean_a - mean_b;
+
+    let new_mean_a = if count_a > 0.0 { new_sum_a / count_a } else { 0.0 };
+    let new_mean_b = if count_b > 0.0 { new_sum_b / count_b } else { 0.0 };
+    let new_gap = new_mean_a - new_mean_b;
+
+    // original_unexplained_gap and new_unexplained_gap
+    // Calculate using beta_fair and actual wages for Group B
+    let mut unexplained_sum_orig = 0.0;
+    let mut unexplained_sum_new = 0.0;
+
+    for (idx, (matrix_idx, is_group_a)) in &map_orig_to_matrix {
+        if !*is_group_a {
+            let actual = wage_array.get(*idx).unwrap_or(0.0);
+            let features = x_b.row(*matrix_idx).transpose();
+            let fair = (&features.transpose() * &beta_fair)[(0, 0)];
+
+            let mut new_wage = actual;
+            for adj in &results {
+                if adj.index == *idx {
+                    new_wage = adj.new_wage;
+                    break;
+                }
+            }
+
+            unexplained_sum_orig += fair - actual;
+            unexplained_sum_new += fair - new_wage;
+        }
+    }
+
+    let original_unexplained_gap = if count_b > 0.0 { unexplained_sum_orig / count_b } else { 0.0 };
+    let new_unexplained_gap = if count_b > 0.0 { unexplained_sum_new / count_b } else { 0.0 };
+
+
     // Prepare Coefficients
     let mut model_coefficients = Vec::new();
     for (i, name) in feature_names.iter().enumerate() {
@@ -279,12 +363,12 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
 
     Ok(OptimizationResult {
         adjustments: results,
-        total_cost: 0.0,
-        original_gap: 0.0,
-        new_gap: 0.0,
-        original_unexplained_gap: 0.0,
-        new_unexplained_gap: 0.0,
-        required_budget: 0.0,
+        total_cost,
+        original_gap,
+        new_gap,
+        original_unexplained_gap,
+        new_unexplained_gap,
+        required_budget: total_need,
         model_coefficients,
     })
 }

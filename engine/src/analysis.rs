@@ -69,6 +69,8 @@ pub fn verify_inner(req: VerificationRequest) -> Result<DecompositionResult, Str
             if let Some(val) = wage_vec[adj.index] {
                 wage_vec[adj.index] = Some(val + adj.value);
             }
+        } else {
+            return Err(format!("Adjustment index {} is out of bounds (dataset has {} rows)", adj.index, wage_vec.len()));
         }
     }
 
@@ -471,11 +473,7 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     let xt_x = x_a.transpose() * &x_a;
     let r = xt_x.nrows();
     let c = xt_x.ncols();
-    let cov_matrix = xt_x.try_inverse().unwrap_or_else(|| {
-        // Fallback: If singular, use pseudo-inverse or identity (approximation)
-        // For salary data, singularity usually means perfect multicollinearity.
-        DMatrix::identity(r, c)
-    });
+    let cov_matrix = xt_x.try_inverse().ok_or("Covariance matrix is singular, likely due to perfect multicollinearity.")?;
 
     // 3. Determine Z-score for Confidence Level
     let confidence = req.confidence_level.unwrap_or(0.95);

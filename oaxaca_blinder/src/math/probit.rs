@@ -105,7 +105,7 @@ pub fn probit(
             }
         };
 
-        let _delta = &h_inv * (-&gradient); // Wait, H is negative. So -H is positive definite.
+
                                             // delta = (-H)^{-1} * g
                                             // delta = -(H^{-1} * g)
                                             // Actually: beta_new = beta_old - H^{-1} g.
