@@ -700,7 +700,7 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     let mut current_spend = 0.0;
 
     // Sort Descending by Gap Amount (for Greedy)
-    potential_adjustments.sort_by(|a, b| b.diff.partial_cmp(&a.diff).unwrap());
+    potential_adjustments.sort_by(|a, b| b.diff.partial_cmp(&a.diff).unwrap_or(std::cmp::Ordering::Equal));
 
     let wage_series = df
         .column(&req.outcome_variable)
@@ -1059,7 +1059,7 @@ pub fn calculate_efficient_frontier_inner(
         })
         .collect();
 
-    pending_payments.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap());
+    pending_payments.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap_or(std::cmp::Ordering::Equal));
 
     let normal = Normal::new(0.0, 1.0).unwrap();
 
