@@ -51,39 +51,56 @@ pub fn solve_qr(x_data: &Array2<f64>, y_data: &Array1<f64>, tau: f64) -> Result<
     }
 
     // A matrix for constraints
-    let mut a_col_ptr = vec![0];
-    let mut a_row_ind = vec![];
-    let mut a_nz_val = vec![];
+    let n_nz = n_features * n_obs + 4 * n_obs;
+
+    let mut a_col_ptr = vec![0; n_vars + 1];
+    let mut a_row_ind = vec![0; n_nz];
+    let mut a_nz_val = vec![0.0; n_nz];
+
+    let mut nz_idx = 0;
+    let mut col_idx = 1;
 
     // Columns for β
     for j in 0..n_features {
         for i in 0..n_obs {
-            a_row_ind.push(i);
-            a_nz_val.push(x_data[[i, j]]);
+            a_row_ind[nz_idx] = i;
+            a_nz_val[nz_idx] = x_data[[i, j]];
+            nz_idx += 1;
         }
-        a_col_ptr.push(a_nz_val.len());
+        a_col_ptr[col_idx] = nz_idx;
+        col_idx += 1;
     }
 
     // Columns for u
     for i in 0..n_obs {
         // from x_i'β + u_i - v_i = y_i
-        a_row_ind.push(i);
-        a_nz_val.push(1.0);
+        a_row_ind[nz_idx] = i;
+        a_nz_val[nz_idx] = 1.0;
+        nz_idx += 1;
+
         // from -u_i <= 0
-        a_row_ind.push(n_obs + i);
-        a_nz_val.push(-1.0);
-        a_col_ptr.push(a_nz_val.len());
+        a_row_ind[nz_idx] = n_obs + i;
+        a_nz_val[nz_idx] = -1.0;
+        nz_idx += 1;
+
+        a_col_ptr[col_idx] = nz_idx;
+        col_idx += 1;
     }
 
     // Columns for v
     for i in 0..n_obs {
         // from x_i'β + u_i - v_i = y_i
-        a_row_ind.push(i);
-        a_nz_val.push(-1.0);
+        a_row_ind[nz_idx] = i;
+        a_nz_val[nz_idx] = -1.0;
+        nz_idx += 1;
+
         // from -v_i <= 0
-        a_row_ind.push(2 * n_obs + i);
-        a_nz_val.push(-1.0);
-        a_col_ptr.push(a_nz_val.len());
+        a_row_ind[nz_idx] = 2 * n_obs + i;
+        a_nz_val[nz_idx] = -1.0;
+        nz_idx += 1;
+
+        a_col_ptr[col_idx] = nz_idx;
+        col_idx += 1;
     }
 
     let a = CscMatrix::new(3 * n_obs, n_vars, a_col_ptr, a_row_ind, a_nz_val);
