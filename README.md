@@ -4,6 +4,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/oaxaca_blinder.svg)](https://crates.io/crates/oaxaca_blinder)
 [![docs.rs](https://docs.rs/oaxaca_blinder/badge.svg)](https://docs.rs/oaxaca_blinder)
+[![CI](https://img.shields.io/github/actions/workflow/status/YOUR_ORG/oaxaca-blinder-rs/ci.yml?branch=main&label=CI)](https://github.com/YOUR_ORG/oaxaca-blinder-rs/actions)
+[![Release](https://img.shields.io/github/actions/workflow/status/YOUR_ORG/oaxaca-blinder-rs/release.yml?label=Release)](https://github.com/YOUR_ORG/oaxaca-blinder-rs/actions)
 
 A high-performance Rust library for performing Oaxaca-Blinder decomposition, designed for economists, data scientists, and HR analysts. It decomposes the gap in an outcome variable (like wage) between two groups into "explained" (characteristics) and "unexplained" (discrimination/coefficients) components.
 

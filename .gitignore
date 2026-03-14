@@ -17,3 +17,5 @@ build.log
 .DS_Store
 *.iml
 .idea/
+.claude
+.agent
