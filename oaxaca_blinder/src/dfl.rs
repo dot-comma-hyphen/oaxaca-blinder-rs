@@ -71,15 +71,34 @@ pub fn run_dfl(
     // Note: We need to handle categorical variables here too, but for simplicity let's assume numeric or pre-processed for now.
     // Ideally we reuse the `prepare_data` logic from OaxacaBuilder, but it's private.
     // For this implementation, let's assume numeric predictors for the MVP.
-    // TODO: Support categorical predictors in DFL.
 
     let mut x_cols = Vec::new();
     let intercept = Series::new("intercept".into(), vec![1.0; df.height()]);
     x_cols.push(Column::Series(intercept));
 
     for pred in predictors {
-        let col = df.column(pred)?.cast(&DataType::Float64)?;
-        x_cols.push(col);
+        let col = df.column(pred)?;
+        let dtype = col.dtype();
+        if dtype == &DataType::String || dtype.to_string().starts_with("Categorical") {
+            let unique_vals = col.unique()?.sort(SortOptions {
+                descending: false,
+                nulls_last: false,
+                ..Default::default()
+            })?;
+            for val_opt in unique_vals.str()?.into_iter().skip(1) {
+                if let Some(val) = val_opt {
+                    let dummy_name = format!("{}_{}", col.name(), val);
+                    let ca = col.as_materialized_series().equal(val).map_err(OaxacaError::from)?;
+                    let mut dummy_series = ca.into_series();
+                    dummy_series = dummy_series.cast(&DataType::Float64)?;
+                    dummy_series.rename(dummy_name.as_str().into());
+                    x_cols.push(Column::Series(dummy_series));
+                }
+            }
+        } else {
+            let numeric_col = col.cast(&DataType::Float64)?;
+            x_cols.push(numeric_col);
+        }
     }
 
     let x_df = DataFrame::new(x_cols).map_err(OaxacaError::from)?;
@@ -170,4 +189,30 @@ pub fn run_dfl(
         density_b,
         density_b_counterfactual,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dfl_with_categorical() -> Result<(), OaxacaError> {
+        let s_y = Series::new("y".into(), vec![10.0, 15.0, 20.0, 12.0, 18.0, 22.0, 10.0, 15.0, 20.0, 12.0, 11.0, 14.0]);
+        let s_g = Series::new("g".into(), vec!["A", "A", "A", "A", "A", "A", "B", "B", "B", "B", "B", "B"]);
+        let s_x_num = Series::new("x_num".into(), vec![1.0, 2.1, 1.5, 3.2, 2.5, 1.9, 1.2, 2.2, 1.7, 3.1, 2.4, 1.8]);
+        let s_x_cat_str = Series::new("x_cat".into(), vec!["C1", "C2", "C1", "C2", "C3", "C3", "C1", "C2", "C1", "C2", "C3", "C3"]);
+
+        let df = DataFrame::new(vec![s_y.into(), s_g.into(), s_x_num.into(), s_x_cat_str.into()]).unwrap();
+
+        let res = run_dfl(&df, "y", "g", "B", &vec!["x_num".to_string(), "x_cat".to_string()]);
+        if res.is_err() {
+            println!("Error: {:?}", res.as_ref().err());
+        }
+        assert!(res.is_ok());
+
+        let dfl = res.unwrap();
+        assert_eq!(dfl.grid.len(), 100);
+
+        Ok(())
+    }
 }
