@@ -266,7 +266,12 @@ async fn run_sse_server(port: u16, api_key: Option<String>) -> Result<()> {
     let cors = CorsLayer::new()
         .allow_origin("http://127.0.0.1".parse::<axum::http::HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
-        .allow_headers(tower_http::cors::Any)
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            "x-api-key".parse::<axum::http::HeaderName>().unwrap(),
+            "mcp-session-id".parse::<axum::http::HeaderName>().unwrap(),
+        ])
         .expose_headers(["Mcp-Session-Id".parse::<axum::http::HeaderName>().unwrap()]);
 
     let app = Router::new()
