@@ -173,18 +173,16 @@ async fn main() -> Result<()> {
 
     if is_sse {
         let port = args.port.unwrap_or(8084);
-        if args.api_key.is_none() {
-            tracing::warn!("MCP_API_KEY is not set! Server is running without authentication.");
-        }
+        let api_key = args.api_key.ok_or_else(|| {
+            anyhow!("MCP_API_KEY is required for HTTP/SSE mode! Server refuses to run without authentication.")
+        })?;
+
         info!(
             "Starting Meridian MCP server in HTTP/SSE mode on port {}",
             port
         );
-        run_sse_server(port, args.api_key).await?;
+        run_sse_server(port, api_key).await?;
     } else {
-        if args.api_key.is_none() {
-            tracing::warn!("MCP_API_KEY is not set! Server is running without authentication.");
-        }
         info!("Starting Meridian MCP server in Stdio mode");
         run_stdio_server(args.rate_limit).await?;
     }
@@ -249,11 +247,11 @@ struct Session {
 
 struct AppState {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
-    api_key: Option<String>,
+    api_key: String,
     rate_limiter: Arc<governor::DefaultDirectRateLimiter>,
 }
 
-async fn run_sse_server(port: u16, api_key: Option<String>) -> Result<()> {
+async fn run_sse_server(port: u16, api_key: String) -> Result<()> {
     let quota = Quota::per_minute(NonZeroU32::new(60).unwrap());
     let rate_limiter = Arc::new(RateLimiter::direct(quota));
 
@@ -264,7 +262,11 @@ async fn run_sse_server(port: u16, api_key: Option<String>) -> Result<()> {
     };
 
     let cors = CorsLayer::new()
-        .allow_origin("http://127.0.0.1".parse::<axum::http::HeaderValue>().unwrap())
+        .allow_origin(
+            "http://127.0.0.1"
+                .parse::<axum::http::HeaderValue>()
+                .unwrap(),
+        )
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers(tower_http::cors::Any)
         .expose_headers(["Mcp-Session-Id".parse::<axum::http::HeaderName>().unwrap()]);
@@ -295,11 +297,7 @@ async fn handle_sse_post(
     Json(req): Json<JsonRpcRequest>,
 ) -> impl IntoResponse {
     if state.rate_limiter.check().is_err() {
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            "Rate limit exceeded",
-        )
-            .into_response();
+        return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
     }
 
     let is_initialize = req.method == "initialize";
@@ -345,20 +343,18 @@ async fn handle_sse_post(
             .into_response();
     }
 
-    if let Some(ref key) = state.api_key {
-        let auth_header = headers
-            .get("x-api-key")
-            .or_else(|| headers.get("authorization"))
-            .and_then(|h| h.to_str().ok());
+    let auth_header = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"))
+        .and_then(|h| h.to_str().ok());
 
-        let authorized = match auth_header {
-            Some(h) => h == key || h == format!("Bearer {}", key),
-            None => false,
-        };
+    let authorized = match auth_header {
+        Some(h) => h == state.api_key || h == format!("Bearer {}", state.api_key),
+        None => false,
+    };
 
-        if !authorized {
-            return (StatusCode::UNAUTHORIZED, "Invalid API Key").into_response();
-        }
+    if !authorized {
+        return (StatusCode::UNAUTHORIZED, "Invalid API Key").into_response();
     }
 
     let response_opt = handle_protocol(req.clone()).await;
@@ -411,11 +407,9 @@ async fn handle_sse_get(
         );
     }
 
-    let endpoint_event = Event::default().event("endpoint").data(format!(
-        "{}?sessionId={}",
-        endpoint_url,
-        new_id
-    ));
+    let endpoint_event = Event::default()
+        .event("endpoint")
+        .data(format!("{}?sessionId={}", endpoint_url, new_id));
 
     let pending = stream::pending::<Result<Event, std::convert::Infallible>>();
     let stream = stream::once(async { Ok(endpoint_event) }).chain(pending);
@@ -635,7 +629,11 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
             if let Some(reps) = mcp_params.bootstrap_reps {
                 mcp_params.bootstrap_reps = Some(reps.min(10000));
             }
-            let req = mcp_params.into(); let res = tokio::task::spawn_blocking(move || decompose_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
+            let req = mcp_params.into();
+            let res = tokio::task::spawn_blocking(move || decompose_inner(req))
+                .await
+                .map_err(|e| anyhow!(e))?
+                .map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "simulate_remediation" => {
@@ -667,7 +665,10 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
                     _ => RangeTarget::Midpoint,
                 }),
             };
-            let res = tokio::task::spawn_blocking(move || optimize_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
+            let res = tokio::task::spawn_blocking(move || optimize_inner(req))
+                .await
+                .map_err(|e| anyhow!(e))?
+                .map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "verify_adjustments" => {
@@ -675,7 +676,11 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
             if let Some(reps) = p.decomposition_params.bootstrap_reps {
                 p.decomposition_params.bootstrap_reps = Some(reps.min(10000));
             }
-            let req = p.into(); let res = tokio::task::spawn_blocking(move || verify_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
+            let req = p.into();
+            let res = tokio::task::spawn_blocking(move || verify_inner(req))
+                .await
+                .map_err(|e| anyhow!(e))?
+                .map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "check_defensibility" => {
@@ -683,7 +688,11 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
             if let Some(reps) = p.decomposition_params.bootstrap_reps {
                 p.decomposition_params.bootstrap_reps = Some(reps.min(10000));
             }
-            let req = p.into(); let res = tokio::task::spawn_blocking(move || check_defensibility_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
+            let req = p.into();
+            let res = tokio::task::spawn_blocking(move || check_defensibility_inner(req))
+                .await
+                .map_err(|e| anyhow!(e))?
+                .map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         "generate_efficient_frontier" => {
@@ -696,7 +705,10 @@ async fn handle_tool_call(params: Option<Value>) -> Result<Value> {
                 steps: Some(50),
                 max_budget: None,
             };
-            let res = tokio::task::spawn_blocking(move || calculate_efficient_frontier_inner(req)).await.map_err(|e| anyhow!(e))?.map_err(|e| anyhow!(e))?;
+            let res = tokio::task::spawn_blocking(move || calculate_efficient_frontier_inner(req))
+                .await
+                .map_err(|e| anyhow!(e))?
+                .map_err(|e| anyhow!(e))?;
             Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&res)? }] }))
         }
         _ => Err(anyhow!("Unknown tool: {}", name)),
