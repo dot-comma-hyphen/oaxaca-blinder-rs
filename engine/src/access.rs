@@ -56,3 +56,28 @@ pub async fn validate_access_code_inner(code: &str, registry_url: &str) -> Resul
 pub async fn validate_access_code_inner(_code: &str, _registry_url: &str) -> Result<PartnerConfig> {
     bail!("Access code validation is only supported in WASM target for now.")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_code_empty() {
+        let input = "";
+        let expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert_eq!(hash_code(input), expected);
+    }
+
+    #[test]
+    fn test_hash_code_abc() {
+        let input = "abc";
+        let expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(hash_code(input), expected);
+    }
+
+    #[test]
+    fn test_hash_code_consistency() {
+        let input = "some_random_code_123";
+        assert_eq!(hash_code(input), hash_code(input));
+    }
+}
