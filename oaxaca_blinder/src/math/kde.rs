@@ -67,16 +67,25 @@ mod tests {
         // Test at center
         let val_0 = gaussian_kernel(0.0);
         let expected_0 = 1.0 / (2.0 * std::f64::consts::PI).sqrt();
-        assert!((val_0 - expected_0).abs() < 1e-8, "gaussian_kernel(0.0) incorrect");
+        assert!(
+            (val_0 - expected_0).abs() < 1e-8,
+            "gaussian_kernel(0.0) incorrect"
+        );
 
         // Test symmetry
         let val_1 = gaussian_kernel(1.0);
         let val_neg_1 = gaussian_kernel(-1.0);
-        assert!((val_1 - val_neg_1).abs() < 1e-8, "gaussian_kernel should be symmetric");
+        assert!(
+            (val_1 - val_neg_1).abs() < 1e-8,
+            "gaussian_kernel should be symmetric"
+        );
 
         // Test known value at x=1
         let expected_1 = expected_0 * (-0.5f64).exp();
-        assert!((val_1 - expected_1).abs() < 1e-8, "gaussian_kernel(1.0) incorrect");
+        assert!(
+            (val_1 - expected_1).abs() < 1e-8,
+            "gaussian_kernel(1.0) incorrect"
+        );
     }
 
     #[test]
@@ -97,7 +106,10 @@ mod tests {
             + (1.0 / 3.0) * gaussian_kernel(-1.0);
         let expected_density = expected_sum / bandwidth;
 
-        assert!((density[0] - expected_density).abs() < 1e-8, "kde uniform weights incorrect");
+        assert!(
+            (density[0] - expected_density).abs() < 1e-8,
+            "kde uniform weights incorrect"
+        );
     }
 
     #[test]
@@ -113,12 +125,14 @@ mod tests {
         // w = [0.25, 0.5, 0.25]
         // at x = 1.0, bw = 2.0:
         // u = [(1-0)/2, (1-1)/2, (1-2)/2] = [0.5, 0.0, -0.5]
-        let expected_sum = 0.25 * gaussian_kernel(0.5)
-            + 0.5 * gaussian_kernel(0.0)
-            + 0.25 * gaussian_kernel(-0.5);
+        let expected_sum =
+            0.25 * gaussian_kernel(0.5) + 0.5 * gaussian_kernel(0.0) + 0.25 * gaussian_kernel(-0.5);
         let expected_density = expected_sum / bandwidth;
 
-        assert!((density[0] - expected_density).abs() < 1e-8, "kde custom weights incorrect");
+        assert!(
+            (density[0] - expected_density).abs() < 1e-8,
+            "kde custom weights incorrect"
+        );
     }
 
     #[test]
@@ -139,6 +153,11 @@ mod tests {
         // result = 0.9 * 1.4925373 * 5^(-0.2) ≈ 0.9735606
 
         let expected_bw = 0.9735846228506357;
-        assert!((bw - expected_bw).abs() < 1e-5, "silverman bandwidth incorrect, got {}, expected roughly {}", bw, expected_bw);
+        assert!(
+            (bw - expected_bw).abs() < 1e-5,
+            "silverman bandwidth incorrect, got {}, expected roughly {}",
+            bw,
+            expected_bw
+        );
     }
 }

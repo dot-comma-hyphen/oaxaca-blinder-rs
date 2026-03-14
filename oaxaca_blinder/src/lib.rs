@@ -334,7 +334,6 @@ impl Estimator for HeckmanEstimator {
 
 // Helper to reliably convert DVector/Slice to DVector (copy)
 
-
 impl HeckmanEstimator {
     fn prepare_selection_data(
         &self,
@@ -343,7 +342,13 @@ impl HeckmanEstimator {
         let y_sel_series = df_group.column(&self.selection_outcome)?.f64()?;
         let y_sel_vec: Result<Vec<f64>, OaxacaError> = y_sel_series
             .into_iter()
-            .map(|opt| opt.ok_or_else(|| OaxacaError::InvalidGroupVariable("Selection outcome contains nulls".to_string())))
+            .map(|opt| {
+                opt.ok_or_else(|| {
+                    OaxacaError::InvalidGroupVariable(
+                        "Selection outcome contains nulls".to_string(),
+                    )
+                })
+            })
             .collect();
         let y_sel = DVector::from_vec(y_sel_vec?);
 

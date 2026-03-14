@@ -87,7 +87,10 @@ pub fn run_dfl(
             })?;
             for val in unique_vals.str()?.into_iter().skip(1).flatten() {
                 let dummy_name = format!("{}_{}", col.name(), val);
-                let ca = col.as_materialized_series().equal(val).map_err(OaxacaError::from)?;
+                let ca = col
+                    .as_materialized_series()
+                    .equal(val)
+                    .map_err(OaxacaError::from)?;
                 let mut dummy_series = ca.into_series();
                 dummy_series = dummy_series.cast(&DataType::Float64)?;
                 dummy_series.rename(dummy_name.as_str().into());
@@ -139,7 +142,9 @@ pub fn run_dfl(
 
     for i in 0..df.height() {
         let is_group_b = y[i] == 0.0;
-        let val = outcome_series.get(i).ok_or_else(|| OaxacaError::InvalidGroupVariable("Null outcome encountered in DFL".to_string()))?;
+        let val = outcome_series.get(i).ok_or_else(|| {
+            OaxacaError::InvalidGroupVariable("Null outcome encountered in DFL".to_string())
+        })?;
 
         if is_group_b {
             let p_x = probs[i];
@@ -195,14 +200,42 @@ mod tests {
 
     #[test]
     fn test_dfl_with_categorical() -> Result<(), OaxacaError> {
-        let s_y = Series::new("y".into(), vec![10.0, 15.0, 20.0, 12.0, 18.0, 22.0, 10.0, 15.0, 20.0, 12.0, 11.0, 14.0]);
-        let s_g = Series::new("g".into(), vec!["A", "A", "A", "A", "A", "A", "B", "B", "B", "B", "B", "B"]);
-        let s_x_num = Series::new("x_num".into(), vec![1.0, 2.1, 1.5, 3.2, 2.5, 1.9, 1.2, 2.2, 1.7, 3.1, 2.4, 1.8]);
-        let s_x_cat_str = Series::new("x_cat".into(), vec!["C1", "C2", "C1", "C2", "C3", "C3", "C1", "C2", "C1", "C2", "C3", "C3"]);
+        let s_y = Series::new(
+            "y".into(),
+            vec![
+                10.0, 15.0, 20.0, 12.0, 18.0, 22.0, 10.0, 15.0, 20.0, 12.0, 11.0, 14.0,
+            ],
+        );
+        let s_g = Series::new(
+            "g".into(),
+            vec!["A", "A", "A", "A", "A", "A", "B", "B", "B", "B", "B", "B"],
+        );
+        let s_x_num = Series::new(
+            "x_num".into(),
+            vec![1.0, 2.1, 1.5, 3.2, 2.5, 1.9, 1.2, 2.2, 1.7, 3.1, 2.4, 1.8],
+        );
+        let s_x_cat_str = Series::new(
+            "x_cat".into(),
+            vec![
+                "C1", "C2", "C1", "C2", "C3", "C3", "C1", "C2", "C1", "C2", "C3", "C3",
+            ],
+        );
 
-        let df = DataFrame::new(vec![s_y.into(), s_g.into(), s_x_num.into(), s_x_cat_str.into()]).unwrap();
+        let df = DataFrame::new(vec![
+            s_y.into(),
+            s_g.into(),
+            s_x_num.into(),
+            s_x_cat_str.into(),
+        ])
+        .unwrap();
 
-        let res = run_dfl(&df, "y", "g", "B", &vec!["x_num".to_string(), "x_cat".to_string()]);
+        let res = run_dfl(
+            &df,
+            "y",
+            "g",
+            "B",
+            &vec!["x_num".to_string(), "x_cat".to_string()],
+        );
         if res.is_err() {
             println!("Error: {:?}", res.as_ref().err());
         }
