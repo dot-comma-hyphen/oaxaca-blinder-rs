@@ -3,7 +3,9 @@ pub mod defensibility;
 pub mod types;
 mod verification_test;
 
+#[cfg(feature = "wasm")]
 use crate::analysis::{decompose_inner, optimize_inner};
+#[cfg(feature = "wasm")]
 use crate::types::*;
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;

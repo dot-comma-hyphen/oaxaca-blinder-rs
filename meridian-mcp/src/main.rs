@@ -56,7 +56,7 @@ struct Args {
 
 #[derive(Deserialize, Debug, Clone)]
 struct JsonRpcRequest {
-    jsonrpc: String,
+    _jsonrpc: String,
     method: String,
     params: Option<Value>,
     id: Option<Value>,
@@ -241,8 +241,8 @@ async fn run_stdio_server(rate_limit_per_min: u32) -> Result<()> {
 // --- SSE Mode ---
 
 struct Session {
-    id: String,
-    created_at: Instant,
+    _id: String,
+    _created_at: Instant,
 }
 
 struct AppState {
@@ -323,8 +323,8 @@ async fn handle_sse_post(
         sessions.insert(
             new_id.clone(),
             Session {
-                id: new_id.clone(),
-                created_at: Instant::now(),
+                _id: new_id.clone(),
+                _created_at: Instant::now(),
             },
         );
         Some(new_id)
@@ -433,8 +433,8 @@ async fn handle_sse_get(
         sessions.insert(
             new_id.clone(),
             Session {
-                id: new_id.clone(),
-                created_at: Instant::now(),
+                _id: new_id.clone(),
+                _created_at: Instant::now(),
             },
         );
     }

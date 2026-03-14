@@ -3,7 +3,6 @@ mod tests {
     use crate::analysis::optimize_inner;
     use crate::types::{AllocationStrategy, OptimizationRequest, OptimizationTarget};
     use polars::prelude::*;
-    use std::io::Cursor;
 
     #[test]
     fn test_log_linear_adjustments_are_non_uniform() {
@@ -44,7 +43,7 @@ mod tests {
         let csv_data = buffer;
 
         let req = OptimizationRequest {
-            csv_data: csv_data,
+            csv_data,
             group_variable: "group".to_string(),
             outcome_variable: "wage".to_string(),
             predictors: vec!["education".to_string()],

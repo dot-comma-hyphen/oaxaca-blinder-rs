@@ -84,6 +84,7 @@ impl QuantileDecompositionBuilder {
         self
     }
 
+    #[allow(clippy::type_complexity)]
     fn prepare_data(
         &self,
         df: &DataFrame,

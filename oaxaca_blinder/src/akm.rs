@@ -215,7 +215,7 @@ fn find_largest_connected_set(
     let mask: BooleanChunked = workers
         .str()?
         .into_iter()
-        .zip(&*firms.str()?)
+        .zip(firms.str()?)
         .map(|(w_opt, f_opt)| {
             if let (Some(w), Some(f)) = (w_opt, f_opt) {
                 if let (Some(&w_idx), Some(&f_idx)) = (worker_map.get(w), firm_map.get(f)) {
@@ -278,7 +278,7 @@ fn solve_akm(
             worker_map
                 .get(id)
                 .ok_or_else(|| AkmError::NotEnoughData("Worker ID not in map".to_string()))
-                .map(|v| v.clone())
+                .copied()
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -294,7 +294,7 @@ fn solve_akm(
             firm_map
                 .get(id)
                 .ok_or_else(|| AkmError::NotEnoughData("Firm ID not in map".to_string()))
-                .map(|v| v.clone())
+                .copied()
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -597,8 +597,8 @@ fn recover_fe(
 
     // Normalize one firm to zero (e.g., first firm) to identify the model
     let ref_val = psi[0];
-    for j in 0..n_firms {
-        psi[j] -= ref_val;
+    for p in psi.iter_mut().take(n_firms) {
+        *p -= ref_val;
     }
     for a in &mut alpha {
         *a += ref_val;

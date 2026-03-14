@@ -149,7 +149,7 @@ pub fn run_dfl(
         if is_group_b {
             let p_x = probs[i];
             // Avoid division by zero
-            let p_x = p_x.min(0.9999).max(0.0001);
+            let p_x = p_x.clamp(0.0001, 0.9999);
 
             let weight = (p_x / (1.0 - p_x)) * ratio_marginal;
             weights_counterfactual.push(weight);

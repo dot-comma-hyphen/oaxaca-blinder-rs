@@ -19,7 +19,7 @@ struct Cli {
 enum Commands {
     /// Run an analysis and print results to the console or export to JSON/Markdown
     #[clap(name = "run")]
-    Run(RunArgs),
+    Run(Box<RunArgs>),
     /// Generate a static HTML report from an analysis
     Report(ReportArgs),
 }
@@ -158,7 +158,7 @@ struct ReportArgs {
     output: PathBuf,
 }
 
-fn run_analysis(args: RunArgs) -> Result<(), Box<dyn Error>> {
+fn run_analysis(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let df = LazyCsvReader::new(&args.data)
         .with_has_header(true)
         .finish()?
@@ -172,7 +172,7 @@ fn run_analysis(args: RunArgs) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn run_mean_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>> {
+fn run_mean_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
     let reference_coeffs = match args.ref_coeffs {
         ReferenceType::GroupA => ReferenceCoefficients::GroupA,
         ReferenceType::GroupB => ReferenceCoefficients::GroupB,
@@ -372,7 +372,7 @@ fn run_report(args: ReportArgs) -> Result<(), Box<dyn Error>> {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Commands::Run(args)) => run_analysis(args),
+        Some(Commands::Run(args)) => run_analysis(*args),
         Some(Commands::Report(args)) => run_report(args),
         None => run_analysis(cli.run_args),
     };

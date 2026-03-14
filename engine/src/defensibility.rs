@@ -1,5 +1,5 @@
 use crate::types::*;
-use nalgebra::{DMatrix, DVector};
+use nalgebra::DVector;
 use oaxaca_blinder::{OaxacaBuilder, ReferenceCoefficients};
 use polars::prelude::*;
 use statrs::distribution::{ContinuousCDF, Normal};

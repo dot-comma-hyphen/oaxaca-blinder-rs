@@ -1,14 +1,25 @@
-use std::io;
-
 pub mod terminal {
     use std::io;
-    pub fn enable_raw_mode() -> io::Result<()> { Ok(()) }
-    pub fn disable_raw_mode() -> io::Result<()> { Ok(()) }
-    pub fn size() -> io::Result<(u16, u16)> { Ok((80, 24)) }
-    pub fn window_size() -> io::Result<WindowSize> { 
-        Ok(WindowSize { rows: 24, columns: 80, width: 800, height: 600 }) 
+    pub fn enable_raw_mode() -> io::Result<()> {
+        Ok(())
     }
-    pub fn is_raw_mode_enabled() -> io::Result<bool> { Ok(false) }
+    pub fn disable_raw_mode() -> io::Result<()> {
+        Ok(())
+    }
+    pub fn size() -> io::Result<(u16, u16)> {
+        Ok((80, 24))
+    }
+    pub fn window_size() -> io::Result<WindowSize> {
+        Ok(WindowSize {
+            rows: 24,
+            columns: 80,
+            width: 800,
+            height: 600,
+        })
+    }
+    pub fn is_raw_mode_enabled() -> io::Result<bool> {
+        Ok(false)
+    }
 
     pub struct WindowSize {
         pub rows: u16,
@@ -75,19 +86,23 @@ pub mod style {
         NoOverLined,
         NotOverLined,
     }
-    
+
     pub struct ContentStyle {
         pub foreground_color: Option<Color>,
         pub background_color: Option<Color>,
         pub attributes: Vec<Attribute>,
     }
-    
+
     impl ContentStyle {
         pub fn new() -> Self {
-            Self { foreground_color: None, background_color: None, attributes: Vec::new() }
+            Self {
+                foreground_color: None,
+                background_color: None,
+                attributes: Vec::new(),
+            }
         }
     }
-    
+
     pub trait Stylize: Sized {
         fn stylize(self) -> StyledContent<Self> {
             StyledContent::new(ContentStyle::new(), self)
@@ -108,11 +123,11 @@ pub mod style {
             StyledContent::new(style, self)
         }
     }
-    
+
     impl Stylize for String {}
     impl Stylize for &str {}
     impl Stylize for char {}
-    
+
     pub fn style<D>(content: D) -> StyledContent<D> {
         StyledContent::new(ContentStyle::new(), content)
     }
@@ -121,7 +136,7 @@ pub mod style {
         style: ContentStyle,
         content: D,
     }
-    
+
     impl<D> StyledContent<D> {
         pub fn new(style: ContentStyle, content: D) -> Self {
             Self { style, content }
@@ -139,7 +154,7 @@ pub mod style {
             self
         }
     }
-    
+
     impl<D: std::fmt::Display> std::fmt::Display for StyledContent<D> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", self.content)
@@ -161,6 +176,8 @@ pub mod tty {
     }
 
     impl<T: ?Sized> IsTty for T {
-        fn is_tty(&self) -> bool { false }
+        fn is_tty(&self) -> bool {
+            false
+        }
     }
 }

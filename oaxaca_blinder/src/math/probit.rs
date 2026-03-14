@@ -51,10 +51,7 @@ pub fn probit(
         // Calculate linear predictor: z = Xβ
         let z = x * &beta;
 
-        // Calculate gradient and Hessian
-        let gradient;
-
-        // We calculate gradient and Hessian contributions vectorized
+        // Calculate gradient and Hessian contributions vectorized
         // Gradient = \sum \lambda_i x_i
         // Expected Hessian: \sum - \frac{\phi^2}{\Phi(1-\Phi)} x_i x_i'
         // Expected Hessian is generally more stable (Fisher Scoring).
@@ -84,7 +81,7 @@ pub fn probit(
         }
 
         // Gradient contribution
-        gradient = x.transpose() * &lambda_vec;
+        let gradient = x.transpose() * &lambda_vec;
 
         // Hessian contribution
         // Multiply each column of X by sqrt_w, then H = - (X_tilde^T * X_tilde)
