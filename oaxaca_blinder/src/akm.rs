@@ -67,22 +67,22 @@ impl AkmBuilder {
         }
     }
 
-    pub fn controls(mut self, controls: &[&str]) -> Self {
+    pub fn controls(&mut self, controls: &[&str]) -> &mut Self {
         self.controls = controls.iter().map(|s| s.to_string()).collect();
         self
     }
 
-    pub fn tolerance(mut self, tol: f64) -> Self {
+    pub fn tolerance(&mut self, tol: f64) -> &mut Self {
         self.tolerance = tol;
         self
     }
 
-    pub fn max_iters(mut self, iters: usize) -> Self {
+    pub fn max_iters(&mut self, iters: usize) -> &mut Self {
         self.max_iters = iters;
         self
     }
 
-    pub fn run(self) -> Result<AkmResult, AkmError> {
+    pub fn run(&self) -> Result<AkmResult, AkmError> {
         // 1. Find Largest Connected Set
         let df_connected =
             find_largest_connected_set(&self.dataframe, &self.worker_col, &self.firm_col)?;

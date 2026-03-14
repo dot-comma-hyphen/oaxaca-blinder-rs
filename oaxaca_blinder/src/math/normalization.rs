@@ -81,7 +81,7 @@ mod tests {
         };
 
         let predictor_names = vec![
-            "intercept".to_string(),
+            "__ob_intercept__".to_string(),
             "cat_B".to_string(),
             "cat_C".to_string(),
         ];

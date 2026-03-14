@@ -1,23 +1,12 @@
 use nalgebra::{DMatrix, DVector};
 use std::fmt::Debug;
 
-/// Trait for distance metrics used in matching.
-pub trait DistanceMetric: Send + Sync + Debug {
-    /// Calculates the distance between two vectors.
-    fn distance(&self, a: &[f64], b: &[f64]) -> f64;
-
-    /// Returns true if the metric is Mahalanobis distance.
-    fn is_mahalanobis(&self) -> bool {
-        false
-    }
-}
-
 /// Euclidean distance metric.
 #[derive(Debug, Clone, Default)]
 pub struct EuclideanDistance;
 
-impl DistanceMetric for EuclideanDistance {
-    fn distance(&self, a: &[f64], b: &[f64]) -> f64 {
+impl EuclideanDistance {
+    pub fn distance(&self, a: &[f64], b: &[f64]) -> f64 {
         a.iter()
             .zip(b.iter())
             .map(|(x, y)| (x - y).powi(2))
@@ -67,24 +56,14 @@ impl MahalanobisDistance {
     pub fn from_inv_covariance(inv_covariance: DMatrix<f64>) -> Self {
         Self { inv_covariance }
     }
-}
 
-impl DistanceMetric for MahalanobisDistance {
-    fn distance(&self, a: &[f64], b: &[f64]) -> f64 {
-        let diff_vec: Vec<f64> = a.iter().zip(b.iter()).map(|(x, y)| x - y).collect();
-        let diff = DVector::from_vec(diff_vec);
-
-        // d = sqrt( (x-y)^T * S^-1 * (x-y) )
-        let dist_sq = diff.dot(&(&self.inv_covariance * &diff));
-
-        if dist_sq < 0.0 {
-            0.0 // Should not happen theoretically for PSD matrices, but floating point errors
-        } else {
-            dist_sq.sqrt()
-        }
+    pub fn distance(&self, a: &[f64], b: &[f64]) -> f64 {
+        let diff = DVector::from_iterator(a.len(), a.iter().zip(b.iter()).map(|(x, y)| x - y));
+        let dist_squared = diff.transpose() * &self.inv_covariance * &diff;
+        dist_squared[(0, 0)].sqrt()
     }
 
-    fn is_mahalanobis(&self) -> bool {
+    pub fn is_mahalanobis(&self) -> bool {
         true
     }
 }

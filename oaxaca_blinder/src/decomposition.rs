@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_detailed_decomposition_sums() {
-        let predictor_names = vec!["intercept".to_string(), "age".to_string()];
+        let predictor_names = vec!["__ob_intercept__".to_string(), "age".to_string()];
         let beta_a = DVector::from_vec(vec![2.0, 4.0]);
         let beta_b = DVector::from_vec(vec![1.0, 3.0]);
         let xa_mean = DVector::from_vec(vec![1.0, 5.0]);

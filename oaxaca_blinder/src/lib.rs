@@ -323,8 +323,8 @@ impl Estimator for HeckmanEstimator {
             base_coeffs_b: HashMap::new(),
             selection_coeffs_a: Some(res_a.selection_coeffs),
             selection_coeffs_b: Some(res_b.selection_coeffs),
-            selection_means_a: Some(vec_to_dvec(&x_sel_a.row_mean().transpose())),
-            selection_means_b: Some(vec_to_dvec(&x_sel_b.row_mean().transpose())),
+            selection_means_a: Some(x_sel_a.row_mean().transpose().clone()),
+            selection_means_b: Some(x_sel_b.row_mean().transpose().clone()),
             selection_names: Some(ctx.predictor_names.to_vec()), /* Usually selection predictors are diff from outcome, but for now assuming caller handles ordering if distinct lists used.*/
             imr_delta_a: Some(res_a.imr_delta),
             imr_delta_b: Some(res_b.imr_delta),
@@ -333,9 +333,7 @@ impl Estimator for HeckmanEstimator {
 }
 
 // Helper to reliably convert DVector/Slice to DVector (copy)
-fn vec_to_dvec(v: &DVector<f64>) -> DVector<f64> {
-    v.clone()
-}
+
 
 impl HeckmanEstimator {
     fn prepare_selection_data(
@@ -350,9 +348,9 @@ impl HeckmanEstimator {
         let y_sel = DVector::from_vec(y_sel_vec);
 
         let mut x_sel_df = df_group.select(&self.selection_predictors)?;
-        let intercept = Series::new("intercept".into(), vec![1.0; df_group.height()]);
+        let intercept = Series::new("__ob_intercept__".into(), vec![1.0; df_group.height()]);
         x_sel_df.with_column(intercept)?;
-        let mut cols = vec!["intercept".to_string()];
+        let mut cols = vec!["__ob_intercept__".to_string()];
         cols.extend(self.selection_predictors.clone());
         let x_sel_df = x_sel_df.select(&cols)?;
 
@@ -368,7 +366,7 @@ impl HeckmanEstimator {
 
         let mut x_sel_sub_df = df_subset.select(&self.selection_predictors)?;
         x_sel_sub_df.with_column(Series::new(
-            "intercept".into(),
+            "__ob_intercept__".into(),
             vec![1.0; df_subset.height()],
         ))?;
         let x_sel_sub_df = x_sel_sub_df.select(&cols)?;
@@ -644,12 +642,12 @@ impl OaxacaBuilder {
         let mut current_predictors = self.predictors.clone();
         current_predictors.extend_from_slice(extra_predictors);
 
-        let mut final_predictors: Vec<String> = vec!["intercept".to_string()];
+        let mut final_predictors: Vec<String> = vec!["__ob_intercept__".to_string()];
         final_predictors.extend_from_slice(&current_predictors);
         final_predictors.extend_from_slice(all_dummy_names);
 
         let mut x_df = df.select(&current_predictors)?;
-        let intercept_series = Series::new("intercept".into(), vec![1.0; df.height()]);
+        let intercept_series = Series::new("__ob_intercept__".into(), vec![1.0; df.height()]);
         x_df.with_column(intercept_series)?;
 
         for name in all_dummy_names {
@@ -867,7 +865,7 @@ impl OaxacaBuilder {
             // Usually we show variables.
 
             // Reconstruct selection variable names: "intercept" + sel_predictors
-            let mut full_sel_names = vec!["intercept".to_string()];
+            let mut full_sel_names = vec!["__ob_intercept__".to_string()];
             full_sel_names.extend(self.selection_predictors.clone());
 
             // Check dimensions
@@ -897,7 +895,7 @@ impl OaxacaBuilder {
             ReferenceCoefficients::Pooled | ReferenceCoefficients::Neumark => {
                 let mut df_pooled = df_a.vstack(&df_b)?;
                 let group_indicator = Series::new(
-                    "group_indicator".into(),
+                    "__ob_group_indicator__".into(),
                     df_pooled
                         .column(&self.group)?
                         .as_materialized_series()
@@ -910,7 +908,7 @@ impl OaxacaBuilder {
                 let (x_pooled, y_pooled, w_pooled, pooled_predictor_names) = self.prepare_data(
                     &df_pooled,
                     all_dummy_names,
-                    &["group_indicator".to_string()],
+                    &["__ob_group_indicator__".to_string()],
                 )?;
 
                 let mut ols_pooled = ols(&y_pooled, &x_pooled, w_pooled.as_ref())?;
@@ -929,7 +927,7 @@ impl OaxacaBuilder {
                 }
                 let group_indicator_idx = pooled_predictor_names
                     .iter()
-                    .position(|r| r == "group_indicator")
+                    .position(|r| r == "__ob_group_indicator__")
                     .ok_or_else(|| {
                         OaxacaError::NalgebraError(
                             "group_indicator not found in pooled model predictors".to_string(),
