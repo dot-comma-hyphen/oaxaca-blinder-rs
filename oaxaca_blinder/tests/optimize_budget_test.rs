@@ -56,7 +56,7 @@ fn test_optimize_budget() -> Result<(), Box<dyn std::error::Error>> {
     // Verify individual adjustments
     // One should be 5.0, one should be 1.0.
     let mut amounts: Vec<f64> = adjustments.iter().map(|a| a.adjustment).collect();
-    amounts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    amounts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     assert!((amounts[0] - 1.0).abs() < 1e-9);
     assert!((amounts[1] - 5.0).abs() < 1e-9);
 
