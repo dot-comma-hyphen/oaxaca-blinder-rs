@@ -310,7 +310,16 @@ async fn handle_sse_post(
 
     let session_id = if is_initialize {
         let new_id = Uuid::new_v4().to_string();
-        let mut sessions = state.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match state.sessions.write() {
+            Ok(s) => s,
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error: session state corrupted",
+                )
+                    .into_response()
+            }
+        };
         sessions.insert(
             new_id.clone(),
             Session {
@@ -329,7 +338,16 @@ async fn handle_sse_post(
             .or_else(|| query.get("session_id").cloned());
 
         if let Some(id) = header_id.or(query_id) {
-            let sessions = state.sessions.read().unwrap_or_else(|e| e.into_inner());
+            let sessions = match state.sessions.read() {
+                Ok(s) => s,
+                Err(_) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error: session state corrupted",
+                    )
+                        .into_response()
+                }
+            };
             if sessions.contains_key(&id) {
                 Some(id)
             } else {
@@ -402,7 +420,16 @@ async fn handle_sse_get(
 
     let new_id = Uuid::new_v4().to_string();
     {
-        let mut sessions = state.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match state.sessions.write() {
+            Ok(s) => s,
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error: session state corrupted",
+                )
+                    .into_response()
+            }
+        };
         sessions.insert(
             new_id.clone(),
             Session {
@@ -430,7 +457,16 @@ async fn handle_sse_delete(
 ) -> impl IntoResponse {
     if let Some(id_val) = headers.get("mcp-session-id") {
         if let Ok(id) = id_val.to_str() {
-            let mut sessions = state.sessions.write().unwrap_or_else(|e| e.into_inner());
+            let mut sessions = match state.sessions.write() {
+                Ok(s) => s,
+                Err(_) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error: session state corrupted",
+                    )
+                        .into_response()
+                }
+            };
             if sessions.remove(id).is_some() {
                 return StatusCode::OK.into_response();
             }
