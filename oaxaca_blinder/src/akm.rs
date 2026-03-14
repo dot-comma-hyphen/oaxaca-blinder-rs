@@ -484,8 +484,10 @@ fn demean_vector(
     }
 
     if iter >= max_iters {
-        // Warning: did not converge
-        // println!("Warning: MAP did not converge within {} iterations", max_iters);
+        return Err(AkmError::ConvergenceFailed(format!(
+            "demean_vector failed to converge within {} iterations",
+            max_iters
+        )));
     }
 
     Ok(())
@@ -576,5 +578,70 @@ fn recover_fe(
         iter += 1;
     }
 
+    if iter >= max_iters {
+        return Err(AkmError::ConvergenceFailed(format!(
+            "recover_fe failed to converge within {} iterations",
+            max_iters
+        )));
+    }
+
     Ok((alpha, psi))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_demean_vector_convergence_failure() {
+        let mut vec = vec![1.0, 2.0, 3.0, 4.0];
+        let worker_indices = vec![0, 1, 0, 1];
+        let firm_indices = vec![0, 0, 1, 1];
+        let n_workers = 2;
+        let n_firms = 2;
+        // Require extremely low tolerance but give 0 iterations so it fails immediately.
+        let result = demean_vector(
+            &mut vec,
+            &worker_indices,
+            &firm_indices,
+            n_workers,
+            n_firms,
+            1e-10,
+            0,
+        );
+
+        assert!(result.is_err());
+        match result {
+            Err(AkmError::ConvergenceFailed(msg)) => {
+                assert!(msg.contains("demean_vector failed to converge"));
+            }
+            _ => panic!("Expected ConvergenceFailed error"),
+        }
+    }
+
+    #[test]
+    fn test_recover_fe_convergence_failure() {
+        let r = vec![1.0, 2.0, 3.0, 4.0];
+        let worker_indices = vec![0, 1, 0, 1];
+        let firm_indices = vec![0, 0, 1, 1];
+        let n_workers = 2;
+        let n_firms = 2;
+        let result = recover_fe(
+            &r,
+            &worker_indices,
+            &firm_indices,
+            n_workers,
+            n_firms,
+            1e-10,
+            0,
+        );
+
+        assert!(result.is_err());
+        match result {
+            Err(AkmError::ConvergenceFailed(msg)) => {
+                assert!(msg.contains("recover_fe failed to converge"));
+            }
+            _ => panic!("Expected ConvergenceFailed error"),
+        }
+    }
 }

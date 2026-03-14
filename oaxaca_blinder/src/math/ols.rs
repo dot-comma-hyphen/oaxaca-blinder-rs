@@ -91,6 +91,16 @@ pub fn ols(
     // Attempt Cholesky decomposition on X'X (or X'WX).
     // This is more numerically stable than explicit inversion and acts as a check for positive-definiteness.
     // X'X should be positive definite if there is no perfect multicollinearity.
+
+    let k = x.ncols() as f64;
+    let n_obs_f = n_obs as f64;
+    if n_obs_f <= k {
+        return Err(OaxacaError::InsufficientData(format!(
+            "Insufficient data for OLS calculation: n_obs ({}) must be strictly greater than k ({})",
+            n_obs, k
+        )));
+    }
+
     let cholesky = xtx.cholesky().ok_or_else(|| {
         OaxacaError::NalgebraError(
             "Failed to perform Cholesky decomposition. Matrix may be singular or not positive definite due to multicollinearity.".to_string(),
@@ -108,7 +118,6 @@ pub fn ols(
     // Calculate residual variance
     // For WLS: e'We / (n - k)
     let k = x.ncols() as f64;
-
     let sse = if let Some(w) = weights {
         // Weighted Sum of Squared Errors
         let weighted_residuals = residuals.component_mul(w); // e * w
@@ -138,14 +147,11 @@ mod tests {
 
     #[test]
     fn test_ols_simple_regression() {
-        // Test a simple model: y = 1 + 2x
-        // Note: DMatrix::from_vec is column-major.
         let x = DMatrix::from_vec(
             5,
             2,
             vec![
-                // Column 1: Intercept
-                1.0, 1.0, 1.0, 1.0, 1.0, // Column 2: x-values
+                1.0, 1.0, 1.0, 1.0, 1.0,
                 0.0, 1.0, 2.0, 3.0, 4.0,
             ],
         );
@@ -154,7 +160,6 @@ mod tests {
         let result = ols(&y, &x, None).expect("OLS calculation failed on valid data");
         let coeffs = result.coefficients;
 
-        // Check that the calculated coefficients are very close to the true values.
         assert_eq!(coeffs.len(), 2);
         assert!((coeffs[0] - 1.0).abs() < 1e-9, "Intercept is incorrect");
         assert!((coeffs[1] - 2.0).abs() < 1e-9, "Slope is incorrect");
@@ -162,14 +167,11 @@ mod tests {
 
     #[test]
     fn test_ols_handles_singular_matrix() {
-        // Create a singular matrix by making two columns perfectly correlated.
-        // Column 2 is 2 * Column 1.
         let x = DMatrix::from_vec(
             3,
             2,
             vec![
-                // Column 1
-                1.0, 1.0, 1.0, // Column 2
+                1.0, 1.0, 1.0,
                 2.0, 2.0, 2.0,
             ],
         );
@@ -177,13 +179,41 @@ mod tests {
 
         let result = ols(&y, &x, None);
 
-        // Assert that the result is an error and that it's the specific error we expect.
         assert!(result.is_err());
         match result {
             Err(OaxacaError::NalgebraError(msg)) => {
                 assert!(msg.contains("Failed to perform Cholesky decomposition"));
             }
-            _ => panic!("Expected a NalgebraError for a singular matrix, but got something else."),
+            Err(_) => panic!("Expected a NalgebraError for a singular matrix, but got something else."),
+            Ok(_) => panic!("Expected an error, but got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_ols_insufficient_data() {
+        // Test OLS with 2 observations and 5 predictors
+        let x = DMatrix::from_vec(
+            2,
+            5,
+            vec![
+                1.0, 1.0, // Column 1
+                2.0, 3.0, // Column 2
+                4.0, 5.0, // Column 3
+                6.0, 7.0, // Column 4
+                8.0, 9.0, // Column 5
+            ],
+        );
+        let y = DVector::from_vec(vec![1.0, 2.0]);
+
+        let result = ols(&y, &x, None);
+
+        assert!(result.is_err());
+        match result {
+            Err(OaxacaError::InsufficientData(msg)) => {
+                assert!(msg.contains("Insufficient data for OLS calculation"));
+            }
+            Err(_) => panic!("Expected InsufficientData error, but got something else."),
+            Ok(_) => panic!("Expected an error, but got Ok"),
         }
     }
 }
