@@ -215,7 +215,7 @@ fn find_largest_connected_set(
     let mask: BooleanChunked = workers
         .str()?
         .into_iter()
-        .zip(firms.str()?.into_iter())
+        .zip(&*firms.str()?)
         .map(|(w_opt, f_opt)| {
             if let (Some(w), Some(f)) = (w_opt, f_opt) {
                 if let (Some(&w_idx), Some(&f_idx)) = (worker_map.get(w), firm_map.get(f)) {
@@ -269,13 +269,13 @@ fn solve_akm(
     let worker_indices: Vec<u32> = workers
         .str()?
         .into_iter()
-        .map(|opt| worker_map.get(opt.unwrap()).unwrap().clone())
+        .map(|opt| *worker_map.get(opt.unwrap()).unwrap())
         .collect();
 
     let firm_indices: Vec<u32> = firms
         .str()?
         .into_iter()
-        .map(|opt| firm_map.get(opt.unwrap()).unwrap().clone())
+        .map(|opt| *firm_map.get(opt.unwrap()).unwrap())
         .collect();
 
     let y_series = df.column(outcome)?.f64()?;
