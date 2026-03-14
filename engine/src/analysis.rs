@@ -1,7 +1,6 @@
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use oaxaca_blinder::{OaxacaBuilder, QuantileDecompositionBuilder, ReferenceCoefficients};
-// use openpay_optimization::pay_equity::PayEquityProblem;
 use polars::prelude::*;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::io::Cursor;
@@ -353,10 +352,6 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     if let Some(cats) = &cats_vec {
         problem_builder.categorical_predictors(cats);
     }
-
-    // We instantiate the problem to get matrices
-    // Changed: Removed OpenPay dependency. Using OaxacaBuilder directly.
-    /* let problem = PayEquityProblem::new(problem_builder, 0.0); */
 
     // Identify Target AND Reference Group Indices
     let group_col = df.column(&req.group_variable).map_err(|e| e.to_string())?;
@@ -933,7 +928,6 @@ pub fn calculate_efficient_frontier_inner(
     let max_budget = req.max_budget.unwrap_or(total_need * 1.1);
 
     // 3. Pre-compute Matrices for Fast OLS
-    // let problem = PayEquityProblem::new(problem_builder, 0.0);
     // Use builder directly
     let (x_b, y_b, x_a, y_a, _feature_names) = problem_builder
         .get_data_matrices()

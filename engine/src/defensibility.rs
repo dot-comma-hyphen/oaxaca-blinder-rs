@@ -1,7 +1,6 @@
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use oaxaca_blinder::{OaxacaBuilder, ReferenceCoefficients};
-// use openpay_optimization::pay_equity::PayEquityProblem;
 use polars::prelude::*;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::collections::HashMap;
@@ -98,8 +97,6 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
     if let Some(cats) = &cats_vec {
         problem_builder.categorical_predictors(cats);
     }
-
-    // let problem = PayEquityProblem::new(problem_builder, 0.0);
 
     // Get Matrices
     let (raw_x_b, _, raw_x_a, y_a, mut feature_names) = problem_builder
