@@ -516,6 +516,7 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
         diff: f64,
         fair_wage: f64, // Statistical Fair Wage (Midpoint)
         orig_idx: usize,
+        is_eligible: bool, // True if the employee should receive budget allocation
     }
     let mut potential_adjustments = Vec::new();
     let adjust_both = req.adjust_both_groups.unwrap_or(false);
@@ -567,6 +568,7 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
                     diff,
                     fair_wage: fair_midpoint,
                     orig_idx: target_indices[i],
+                    is_eligible: true,
                 });
             } else if is_forensic {
                 potential_adjustments.push(PotentialAdj {
@@ -575,6 +577,7 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
                     diff,
                     fair_wage: fair_midpoint,
                     orig_idx: target_indices[i],
+                    is_eligible: false,
                 });
             }
         } else if is_forensic {
@@ -584,6 +587,7 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
                 diff,
                 fair_wage: fair_midpoint,
                 orig_idx: target_indices[i],
+                is_eligible: false,
             });
         }
     }
@@ -615,58 +619,36 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
                     0.0
                 };
 
-                // Only consider for ADJUSTMENT if adjust_both is true
-                if adjust_both && gap_pct >= min_pct {
+            let is_eligible = adjust_both && gap_pct >= min_pct;
+
+            if is_eligible {
                     potential_adjustments.push(PotentialAdj {
                         matrix_idx: i,
                         source: GroupSource::GroupA,
                         diff,
                         fair_wage: fair,
                         orig_idx: reference_indices[i],
+                    is_eligible: true,
                     });
                 } else if is_forensic {
-                    // In forensic mode, we visualize them even if not adjusting
-                    // But allocation key is diff. If we push them, they will be considered for budget?
-                    // No, strictly separate eligibility (adjust_both) from visibility (forensic).
-                    // But `potential_adjustments` creates `adjustments` which optimization result returns.
-                    // If we want to visualize A in forensic but NOT pay them, we handle that in Allocation Loop?
-                    // For now, let's stick to: If adjust_both is FALSE, we verify if user wants forensic on A.
-                    // The user request was "adjust underpaid from both group".
-                    // Safe bet: If forensic, include all. Allocation strategy will filter?
-                    // Actually, AllocationStrategy iterates `potential_adjustments`.
-                    // So we should only push to `potential_adjustments` if they are CANDIDATES for payment,
-                    // OR if we make sure payment is 0 later.
-
-                    // Current Forensic Logic: It relies on `adjustments` list.
-                    // So we MUST push them to `adjustments` list for frontend to see them.
-                    // We can set adjustment=0 later if not eligible.
-                    // But `AllocationStrategy` logic below sums `total_need` from this list.
-                    // HACK: We will filter `total_need` based on eligibility?
-                    // Simpler: If `adjust_both` is false, we DO NOT push Group A to potential_adjustments for PAYMENT.
-                    // But what about forensic? The user didn't explicitly ask for Forensic on A, only "adjust".
-                    // Ideally forensic shows everyone.
-                    // Let's implement: If `adjust_both` is TRUE, add A to potential.
-                    // If FALSE, do NOT add A (preserve compat).
-
-                    if adjust_both {
-                        potential_adjustments.push(PotentialAdj {
-                            matrix_idx: i,
-                            source: GroupSource::GroupA,
-                            diff,
-                            fair_wage: fair,
-                            orig_idx: reference_indices[i],
-                        });
-                    }
-                }
-            } else if is_forensic && adjust_both {
-                // Determine if we show Overpaid As?
-                // Let's align with logic: Only if adjust_both is active do we interact with A at all for now.
                 potential_adjustments.push(PotentialAdj {
                     matrix_idx: i,
                     source: GroupSource::GroupA,
                     diff,
                     fair_wage: fair,
                     orig_idx: reference_indices[i],
+                    is_eligible: false,
+                });
+                }
+        } else if is_forensic {
+            // Include in forensic analysis even if no positive gap
+                potential_adjustments.push(PotentialAdj {
+                    matrix_idx: i,
+                    source: GroupSource::GroupA,
+                    diff,
+                    fair_wage: fair,
+                    orig_idx: reference_indices[i],
+                is_eligible: false,
                 });
             }
         }
@@ -675,11 +657,11 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     // 5. Allocation Strategy
     let strategy = req.strategy.as_ref().unwrap_or(&AllocationStrategy::Greedy);
 
-    // Calculate Total Need (Sum of all VALID positive residuals)
+    // Calculate Total Need (Sum of all VALID positive residuals that are eligible for allocation)
     // We do this BEFORE setting effective_budget so we can default to total_need if budget is 0
     let total_need: f64 = potential_adjustments
         .iter()
-        .filter(|p| p.diff > 0.0)
+        .filter(|p| p.diff > 0.0 && p.is_eligible)
         .map(|p| p.diff)
         .sum();
 
@@ -729,8 +711,8 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
     match strategy {
         AllocationStrategy::Greedy => {
             for pot in potential_adjustments {
-                // If diff is <= 0, pay_amount MUST be 0.
-                let pay_amount = if pot.diff > 0.0 {
+                // If diff is <= 0 or not eligible, pay_amount MUST be 0.
+                let pay_amount = if pot.diff > 0.0 && pot.is_eligible {
                     let remaining_budget = effective_budget - current_spend;
                     if remaining_budget > 0.0 {
                         pot.diff.min(remaining_budget)
@@ -779,8 +761,8 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
             };
 
             for pot in potential_adjustments {
-                // If diff <= 0, pay_amount is 0.
-                let pay_amount = if pot.diff > 0.0 {
+                // If diff <= 0 or not eligible, pay_amount is 0.
+                let pay_amount = if pot.diff > 0.0 && pot.is_eligible {
                     pot.diff * coverage_ratio
                 } else {
                     0.0
