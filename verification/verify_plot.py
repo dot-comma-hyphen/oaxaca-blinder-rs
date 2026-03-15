@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 from oaxaca_blinder import OaxacaBlinder, run_dfl_from_csv
-import matplotlib.pyplot as plt
 import polars as pl
 
 def create_dummy_data():
