@@ -81,8 +81,8 @@ pub fn calculate_vif(
         let y_mean = y.mean();
         let y_mean_vec = DVector::from_element(y.nrows(), y_mean);
 
-        let ss_total = (y.clone() - y_mean_vec.clone()).transpose() * (y.clone() - y_mean_vec);
-        let ss_residual = (y.clone() - y_hat.clone()).transpose() * (y - y_hat);
+        let ss_total = (&y - &y_mean_vec).transpose() * (&y - &y_mean_vec);
+        let ss_residual = (&y - &y_hat).transpose() * (&y - &y_hat);
 
         if ss_total[(0, 0)] == 0.0 {
             results.push(VifResult {
