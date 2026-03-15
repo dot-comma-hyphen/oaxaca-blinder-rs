@@ -359,17 +359,22 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
 
     // Identify Target AND Reference Group Indices
     let group_col = df.column(&req.group_variable).map_err(|e| e.to_string())?;
-    let groups_iter = group_col.str().map_err(|e| e.to_string())?.into_iter();
+    let is_reference_mask = group_col
+        .str()
+        .map_err(|e| e.to_string())?
+        .equal(req.reference_group.as_str());
 
+    // Using capacities could improve performance further if we knew sizes,
+    // but without counting we just default to standard allocation.
     let mut target_indices = Vec::new();
     let mut reference_indices = Vec::new();
 
-    for (idx, val_opt) in groups_iter.enumerate() {
-        if let Some(val) = val_opt {
-            if val != req.reference_group {
-                target_indices.push(idx);
-            } else {
+    for (idx, is_ref_opt) in is_reference_mask.into_iter().enumerate() {
+        if let Some(is_ref) = is_ref_opt {
+            if is_ref {
                 reference_indices.push(idx);
+            } else {
+                target_indices.push(idx);
             }
         }
     }
