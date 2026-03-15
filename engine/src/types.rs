@@ -48,19 +48,19 @@ pub struct DecompositionResult {
     pub unexplained_standard_error: Option<f64>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum OptimizationTarget {
     Reference, // Match Group A (Current "Perfect Equity")
     Pooled,    // Match Market Average (Zero Statistical Gap)
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum AllocationStrategy {
     Greedy,    // Sort by Gap Descending
     Equitable, // Distribute budget proportionally
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct OptimizationRequest {
     pub csv_data: Vec<u8>,
     pub outcome_variable: String,
@@ -86,13 +86,13 @@ pub enum RangeTarget {
     UpperBound, // High Retention (Upper CI)
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Contribution {
     pub name: String,
     pub value: f64,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Adjustment {
     pub index: usize,
     pub adjustment: f64,
@@ -106,7 +106,7 @@ pub struct Adjustment {
     pub defensibility_message: Option<String>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct OptimizationResult {
     pub adjustments: Vec<Adjustment>,
     pub total_cost: f64,
