@@ -84,12 +84,32 @@ pub fn probit(
         let gradient = x.transpose() * &lambda_vec;
 
         // Hessian contribution
-        // Multiply each column of X by sqrt_w, then H = - (X_tilde^T * X_tilde)
-        let mut x_tilde = x.clone();
-        for mut col in x_tilde.column_iter_mut() {
-            col.component_mul_assign(&sqrt_w_vec);
+        // Compute H = - (X^T * W * X) without cloning X.
+        // We can compute the elements of H = -X^T W X directly.
+        // For symmetric H, we compute the lower triangle and copy to upper.
+        let w_slice = sqrt_w_vec.as_slice();
+        let mut w_squared = vec![0.0; n];
+        for m in 0..n {
+            w_squared[m] = w_slice[m] * w_slice[m];
         }
-        h = -(x_tilde.transpose() * x_tilde);
+
+        for i in 0..k {
+            let col_i = x.column(i);
+            let slice_i = col_i.as_slice();
+            for j in 0..=i {
+                let col_j = x.column(j);
+                let slice_j = col_j.as_slice();
+                let mut sum = 0.0;
+                // H_ij = - sum_m (X_mi * W_m * X_mj)
+                for m in 0..n {
+                    sum -= slice_i[m] * slice_j[m] * w_squared[m];
+                }
+                h[(i, j)] = sum;
+                if i != j {
+                    h[(j, i)] = sum;
+                }
+            }
+        }
 
         // Newton step: \Delta \beta = -H^{-1} g
         // Since we use Fisher Scoring, H is negative definite.
@@ -201,5 +221,20 @@ mod tests {
             result.iterations, 1,
             "Should have stopped after 1 iteration"
         );
+    }
+
+    #[test]
+    fn bench_probit_perf() {
+        use std::time::Instant;
+        let n = 5000;
+        let k = 20;
+        let x = DMatrix::from_fn(n, k, |r, c| ((r + c) % 10) as f64 / 10.0);
+        let y = DVector::from_fn(n, |r, _| if r % 2 == 0 { 1.0 } else { 0.0 });
+
+        let start = Instant::now();
+        for _ in 0..10 {
+            let _ = probit(&y, &x, 10, 1e-4);
+        }
+        println!("probit elapsed: {:?}", start.elapsed());
     }
 }
