@@ -53,15 +53,14 @@ pub fn calculate_vif(
             .cloned()
             .collect();
 
-        let x_df = df.select(&other_predictors)?;
-        let mut x_df_with_intercept = x_df.clone();
+        let mut x_df = df.select(&other_predictors)?;
         let intercept = Series::new("__ob_intercept__".into(), vec![1.0; x_df.height()]);
-        x_df_with_intercept.with_column(intercept)?;
+        x_df.with_column(intercept)?;
 
-        let x_matrix_ndarray = x_df_with_intercept.to_ndarray::<Float64Type>(IndexOrder::C)?;
+        let x_matrix_ndarray = x_df.to_ndarray::<Float64Type>(IndexOrder::C)?;
         let x_matrix = DMatrix::from_row_slice(
-            x_df_with_intercept.height(),
-            x_df_with_intercept.width(),
+            x_df.height(),
+            x_df.width(),
             &x_matrix_ndarray.into_raw_vec(),
         );
 
@@ -185,5 +184,35 @@ mod tests {
         } else {
             panic!("Expected OaxacaError::DiagnosticError");
         }
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use polars::prelude::*;
+    use std::time::Instant;
+
+    #[test]
+    fn bench_vif() {
+        let mut cols = Vec::new();
+        let n_rows = 5000;
+        let n_cols = 50;
+
+        for i in 0..n_cols {
+            let name = format!("x{}", i);
+            let vals: Vec<f64> = (0..n_rows).map(|j| (i + j) as f64).collect();
+            cols.push(polars::prelude::Column::Series(Series::new(name.into(), vals)));
+        }
+
+        let df = DataFrame::new(cols).unwrap();
+        let predictor_names: Vec<String> = (0..n_cols).map(|i| format!("x{}", i)).collect();
+
+        let start = Instant::now();
+        for _ in 0..10 {
+            let _ = calculate_vif(&df, &predictor_names);
+        }
+        let elapsed = start.elapsed();
+        println!("Elapsed time for 10 iterations: {:?}", elapsed);
     }
 }
