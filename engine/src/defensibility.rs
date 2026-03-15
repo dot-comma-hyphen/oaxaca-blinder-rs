@@ -91,11 +91,11 @@ pub fn check_defensibility_inner(req: VerificationRequest) -> Result<Optimizatio
         &req.decomposition_params.group_variable,
         &req.decomposition_params.reference_group,
     );
-    problem_builder.predictors(&predictors);
+    problem_builder.predictors(predictors.iter().copied());
     problem_builder.reference_coefficients(ReferenceCoefficients::Pooled);
 
     if let Some(cats) = &cats_vec {
-        problem_builder.categorical_predictors(cats);
+        problem_builder.categorical_predictors(cats.iter().copied());
     }
 
     // Get Matrices

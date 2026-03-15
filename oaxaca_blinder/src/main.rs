@@ -190,8 +190,8 @@ fn run_mean_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn std::e
             .map(|v| v.iter().map(AsRef::as_ref).collect())
             .unwrap_or_default();
         let mut b = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference);
-        b.predictors(&predictors)
-            .categorical_predictors(&categorical_predictors);
+        b.predictors(predictors.iter().copied())
+            .categorical_predictors(categorical_predictors.iter().copied());
         b
     };
 
@@ -206,7 +206,7 @@ fn run_mean_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn std::e
     if let Some(sel_outcome) = &args.selection_outcome {
         if let Some(sel_predictors) = &args.selection_predictors {
             let sel_preds_refs: Vec<&str> = sel_predictors.iter().map(AsRef::as_ref).collect();
-            builder.heckman_selection(sel_outcome, &sel_preds_refs);
+            builder.heckman_selection(sel_outcome, sel_preds_refs.iter().copied());
         } else {
             return Err(
                 "Selection predictors must be provided if selection outcome is specified".into(),
@@ -246,8 +246,8 @@ fn run_quantile_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Er
     let mut builder =
         QuantileDecompositionBuilder::new(df, &args.outcome, &args.group, &args.reference);
     builder
-        .predictors(&predictors)
-        .categorical_predictors(&categorical_predictors)
+        .predictors(predictors.iter().copied())
+        .categorical_predictors(categorical_predictors.iter().copied())
         .quantiles(&quantiles)
         .bootstrap_reps(args.bootstrap_reps)
         .simulations(args.simulations);
@@ -270,7 +270,7 @@ fn run_akm_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>>
     let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
 
     let mut builder = AkmBuilder::new(df, &args.outcome, worker_col, firm_col);
-    builder.controls(&predictors);
+    builder.controls(predictors.iter().copied());
     let results = builder
         .run()
         .map_err(|e| format!("AKM estimation failed: {:?}", e))?;
@@ -291,7 +291,7 @@ fn run_akm_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>>
 fn run_matching_analysis(args: &RunArgs, df: DataFrame) -> Result<(), Box<dyn Error>> {
     use oaxaca_blinder::MatchingEngine;
     let predictors: Vec<&str> = args.predictors.iter().map(AsRef::as_ref).collect();
-    let engine = MatchingEngine::new(df, &args.group, &args.outcome, &predictors);
+    let engine = MatchingEngine::new(df, &args.group, &args.outcome, predictors.iter().copied());
 
     let weights = if args.matching_method == "psm" {
         engine
@@ -343,8 +343,8 @@ fn run_report(args: ReportArgs) -> Result<(), Box<dyn Error>> {
         .map(|v| v.iter().map(AsRef::as_ref).collect())
         .unwrap_or_default();
     let results = OaxacaBuilder::new(df, &args.outcome, &args.group, &args.reference)
-        .predictors(&predictors)
-        .categorical_predictors(&categorical_predictors)
+        .predictors(predictors.iter().copied())
+        .categorical_predictors(categorical_predictors.iter().copied())
         .run()?;
 
     let two_fold = results.two_fold().aggregate().clone();

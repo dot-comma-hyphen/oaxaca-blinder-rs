@@ -18,7 +18,7 @@ fn test_reference_groups() {
     // Test Cotton
     let mut builder_cotton = OaxacaBuilder::new(df.clone(), "wage", "gender", "F");
     builder_cotton
-        .predictors(&["education", "experience"])
+        .predictors(vec!["education", "experience"])
         .reference_coefficients(ReferenceCoefficients::Cotton);
     let results_cotton = builder_cotton.run().expect("Cotton decomposition failed");
 
@@ -27,7 +27,7 @@ fn test_reference_groups() {
     // Test Neumark
     let mut builder_neumark = OaxacaBuilder::new(df.clone(), "wage", "gender", "F");
     builder_neumark
-        .predictors(&["education", "experience"])
+        .predictors(vec!["education", "experience"])
         .reference_coefficients(ReferenceCoefficients::Neumark);
     let results_neumark = builder_neumark.run().expect("Neumark decomposition failed");
 
@@ -53,10 +53,10 @@ fn test_jmp_decomposition() {
     .unwrap();
 
     let mut builder_t1 = OaxacaBuilder::new(df_t1, "wage", "gender", "F");
-    builder_t1.predictors(&["education"]);
+    builder_t1.predictors(vec!["education"]);
 
     let mut builder_t2 = OaxacaBuilder::new(df_t2, "wage", "gender", "F");
-    builder_t2.predictors(&["education"]);
+    builder_t2.predictors(vec!["education"]);
 
     let jmp_results = decompose_changes(&builder_t1, &builder_t2).expect("JMP failed");
 

@@ -64,8 +64,8 @@ fn test_detailed_components_with_rare_category() {
 
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
     let results = builder
-        .predictors(&["education"])
-        .categorical_predictors(&["sector"])
+        .predictors(vec!["education"])
+        .categorical_predictors(vec!["sector"])
         .bootstrap_reps(5)
         .run()
         .expect("Oaxaca run failed");
@@ -106,7 +106,7 @@ fn test_detailed_components_with_rare_category() {
 fn test_full_run_group_b_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
-    builder.predictors(&["education"]).bootstrap_reps(5); // Default is GroupB
+    builder.predictors(vec!["education"]).bootstrap_reps(5); // Default is GroupB
     run_and_check(builder, 10.0);
 }
 
@@ -115,7 +115,7 @@ fn test_full_run_group_a_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
     builder
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::GroupA);
     run_and_check(builder, 10.0);
@@ -126,7 +126,7 @@ fn test_full_run_pooled_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
     builder
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Pooled);
     run_and_check(builder, 10.0);
@@ -137,7 +137,7 @@ fn test_full_run_weighted_ref() {
     let df = create_sample_dataframe();
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
     builder
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .bootstrap_reps(5)
         .reference_coefficients(ReferenceCoefficients::Weighted);
     run_and_check(builder, 10.0);
@@ -154,9 +154,9 @@ fn test_with_categorical_variable() {
 
     let mut builder = OaxacaBuilder::new(df, "wage", "gender", "F");
     builder
-        .predictors(&["education"])
-        .categorical_predictors(&["union"])
-        .normalize(&["union"])
+        .predictors(vec!["education"])
+        .categorical_predictors(vec!["union"])
+        .normalize(vec!["union"])
         .bootstrap_reps(5);
 
     run_and_check(builder, 10.0);
@@ -174,7 +174,7 @@ fn test_quantile_decomposition() {
     let quantiles_to_test = &[0.25, 0.5, 0.75];
     let mut builder = QuantileDecompositionBuilder::new(df, "wage", "gender", "F");
     let results = builder
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .quantiles(quantiles_to_test)
         .simulations(10) // Low number for fast testing
         .bootstrap_reps(2) // Low number for fast testing
