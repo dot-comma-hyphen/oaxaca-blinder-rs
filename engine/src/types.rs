@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DecompositionRequest {
     pub csv_data: Vec<u8>,
     pub outcome_variable: String,
@@ -140,7 +140,7 @@ pub struct FrontierPoint {
     pub is_significant: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct EfficientFrontierRequest {
     #[serde(flatten)]
     pub decomposition_params: DecompositionRequest,

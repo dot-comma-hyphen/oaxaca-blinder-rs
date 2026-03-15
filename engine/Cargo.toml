@@ -47,3 +47,6 @@ wasm = [
 [patch.crates-io]
 # crossterm = { path = "./crates/crossterm" }
 # openpay_optimization = { path = "./vendor/openpay_optimization" }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.42"
