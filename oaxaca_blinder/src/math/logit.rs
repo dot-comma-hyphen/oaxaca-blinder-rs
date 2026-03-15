@@ -46,7 +46,18 @@ pub fn logit(
 
         // Gradient: X' * (y - p)
         let error = y - &probs;
-        let gradient = x.transpose() * &error;
+        let mut gradient = DVector::zeros(k);
+        let x_slice = x.as_slice();
+        let e_slice = error.as_slice();
+        for j in 0..k {
+            let col_start = j * _n;
+            let col = &x_slice[col_start..col_start + _n];
+            gradient[j] = col
+                .iter()
+                .zip(e_slice.iter())
+                .map(|(&xj, &ej)| xj * ej)
+                .sum::<f64>();
+        }
 
         // Hessian: X' * W * X, where W is diagonal matrix with p * (1-p)
         // Constructing full diagonal matrix W is expensive (N*N).
@@ -56,18 +67,34 @@ pub fn logit(
 
         let w_diag: DVector<f64> = probs.map(|p| p * (1.0 - p));
 
-        // We can compute X'WX as (X.transpose() * (W_diag.component_mul(X_col)))?
-        // Or simpler: Scale rows of X by sqrt(w), then compute Gram matrix.
-        // Let X_tilde = sqrt(W) * X
-        // Hessian = - X_tilde' * X_tilde
+        // Compute Hessian: H = -(X' * W * X), where W is diagonal matrix of w_diag.
+        // To avoid full matrix clone and multiple transpositions, we compute the
+        // weighted Gram matrix directly using nalgebra's internal data layout.
+        let mut hessian = DMatrix::zeros(k, k);
+        let x_slice = x.as_slice();
+        let w_slice = w_diag.as_slice();
 
-        let sqrt_w: DVector<f64> = w_diag.map(|w| w.sqrt());
-        let mut x_tilde = x.clone();
-        for mut col in x_tilde.column_iter_mut() {
-            col.component_mul_assign(&sqrt_w);
+        for j in 0..k {
+            let col_j_start = j * _n;
+            let col_j = &x_slice[col_j_start..col_j_start + _n];
+
+            for i in j..k {
+                let col_i_start = i * _n;
+                let col_i = &x_slice[col_i_start..col_i_start + _n];
+
+                let dot = col_i
+                    .iter()
+                    .zip(col_j.iter())
+                    .zip(w_slice.iter())
+                    .map(|((&ci, &cj), &w)| ci * cj * w)
+                    .sum::<f64>();
+
+                hessian[(i, j)] = -dot;
+                if i != j {
+                    hessian[(j, i)] = -dot;
+                }
+            }
         }
-
-        let hessian = -(x_tilde.transpose() * x_tilde);
 
         // Update step: beta_new = beta_old - Hessian^-1 * Gradient
         // beta_new = beta_old + (X'WX)^-1 * Gradient

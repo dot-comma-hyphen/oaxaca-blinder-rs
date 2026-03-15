@@ -81,15 +81,45 @@ pub fn probit(
         }
 
         // Gradient contribution
-        let gradient = x.transpose() * &lambda_vec;
+        let mut gradient = DVector::zeros(k);
+        let x_slice = x.as_slice();
+        let l_slice = lambda_vec.as_slice();
+        for j in 0..k {
+            let col_start = j * n;
+            let col = &x_slice[col_start..col_start + n];
+            gradient[j] = col
+                .iter()
+                .zip(l_slice.iter())
+                .map(|(&xj, &lj)| xj * lj)
+                .sum::<f64>();
+        }
 
         // Hessian contribution
-        // Multiply each column of X by sqrt_w, then H = - (X_tilde^T * X_tilde)
-        let mut x_tilde = x.clone();
-        for mut col in x_tilde.column_iter_mut() {
-            col.component_mul_assign(&sqrt_w_vec);
+        // Fisher Information I = X' * W * X, and H = -I
+        let mut info_matrix = DMatrix::zeros(k, k);
+        let w_slice = sqrt_w_vec.as_slice(); // These are sqrt(weight)
+        for j in 0..k {
+            let col_j_start = j * n;
+            let col_j = &x_slice[col_j_start..col_j_start + n];
+
+            for i in j..k {
+                let col_i_start = i * n;
+                let col_i = &x_slice[col_i_start..col_i_start + n];
+
+                let dot = col_i
+                    .iter()
+                    .zip(col_j.iter())
+                    .zip(w_slice.iter())
+                    .map(|((&ci, &cj), &sqrt_w)| ci * cj * (sqrt_w * sqrt_w))
+                    .sum::<f64>();
+
+                info_matrix[(i, j)] = dot;
+                if i != j {
+                    info_matrix[(j, i)] = dot;
+                }
+            }
         }
-        h = -(x_tilde.transpose() * x_tilde);
+        h = -info_matrix;
 
         // Newton step: \Delta \beta = -H^{-1} g
         // Since we use Fisher Scoring, H is negative definite.
