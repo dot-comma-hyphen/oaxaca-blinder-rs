@@ -72,3 +72,21 @@ pub async fn validate_access_code(code: String, registry_url: String) -> Result<
 }
 
 mod access;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "wasm")]
+    fn test_init_panic_hook() {
+        // This function calls `console_error_panic_hook::set_once()`.
+        // The main verification is that it can be called without panicking.
+        // `set_once()` is idempotent, so it's safe to call it multiple times
+        // across different tests.
+        init_panic_hook();
+
+        // Calling it a second time should also not panic due to `set_once`
+        init_panic_hook();
+    }
+}
