@@ -27,7 +27,7 @@ fn test_optimize_budget() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let results = OaxacaBuilder::new(df, "wage", "group", "B")
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .run()?;
 
     // Total Gap = 32 - 16 = 16.

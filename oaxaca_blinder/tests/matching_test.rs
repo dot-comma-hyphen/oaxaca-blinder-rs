@@ -37,7 +37,7 @@ fn test_matching_engine_basic() -> Result<(), Box<dyn std::error::Error>> {
         "education" => education
     )?;
 
-    let engine = MatchingEngine::new(df.clone(), "treated", "income", &["education"]);
+    let engine = MatchingEngine::new(df.clone(), "treated", "income", vec!["education"]);
 
     // Test NN matching
     let weights = engine.run_matching(1, false)?;
@@ -90,7 +90,7 @@ fn test_psm_matching() -> Result<(), Box<dyn std::error::Error>> {
         "education" => education
     )?;
 
-    let engine = MatchingEngine::new(df, "treated", "income", &["education"]);
+    let engine = MatchingEngine::new(df, "treated", "income", vec!["education"]);
     let weights = engine.match_psm(1)?;
 
     assert_eq!(weights.len(), n);

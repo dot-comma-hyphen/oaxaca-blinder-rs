@@ -57,8 +57,8 @@ fn test_heckman_correction() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run Oaxaca with Heckman
     let res = OaxacaBuilder::new(df, "outcome", "group", "B")
-        .predictors(&["x"])
-        .heckman_selection("selection", &["z"]) // Z is exclusion restriction
+        .predictors(vec!["x"])
+        .heckman_selection("selection", vec!["z"]) // Z is exclusion restriction
         .bootstrap_reps(0)
         .run()?;
 

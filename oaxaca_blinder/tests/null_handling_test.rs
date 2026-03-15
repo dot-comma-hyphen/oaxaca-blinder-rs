@@ -48,7 +48,7 @@ fn test_null_handling() -> Result<(), Box<dyn std::error::Error>> {
     let df = DataFrame::new(vec![s0.into(), s1.into(), s2.into()])?;
 
     let results = OaxacaBuilder::new(df, "outcome", "group", "B")
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .run()?;
 
     // Should have 3 obs in A and 3 obs in B

@@ -28,7 +28,7 @@ fn test_weighted_decomposition() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run unweighted
     let res_unweighted = OaxacaBuilder::new(df.clone(), "outcome", "group", "B")
-        .predictors(&["x"])
+        .predictors(vec!["x"])
         .bootstrap_reps(0)
         .run()?;
 
@@ -37,7 +37,7 @@ fn test_weighted_decomposition() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run weighted
     let res_weighted = OaxacaBuilder::new(df, "outcome", "group", "B")
-        .predictors(&["x"])
+        .predictors(vec!["x"])
         .weights("weight")
         .bootstrap_reps(0)
         .run()?;

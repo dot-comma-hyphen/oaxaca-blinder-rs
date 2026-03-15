@@ -67,8 +67,12 @@ impl AkmBuilder {
         }
     }
 
-    pub fn controls(&mut self, controls: &[&str]) -> &mut Self {
-        self.controls = controls.iter().map(|s| s.to_string()).collect();
+    pub fn controls<I, S>(&mut self, controls: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.controls = controls.into_iter().map(|s| s.into()).collect();
         self
     }
 

@@ -11,7 +11,7 @@ fn test_export_methods() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let results = OaxacaBuilder::new(df, "wage", "gender", "F")
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .bootstrap_reps(10) // Low reps for speed
         .run()?;
 

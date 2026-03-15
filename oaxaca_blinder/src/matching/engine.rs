@@ -15,17 +15,21 @@ pub struct MatchingEngine {
 }
 
 impl MatchingEngine {
-    pub fn new(
+    pub fn new<I, S>(
         dataframe: DataFrame,
         treatment_col: &str,
         outcome_col: &str,
-        covariates: &[&str],
-    ) -> Self {
+        covariates: I,
+    ) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
         Self {
             dataframe,
             treatment_col: treatment_col.to_string(),
             outcome_col: outcome_col.to_string(),
-            covariates: covariates.iter().map(|s| s.to_string()).collect(),
+            covariates: covariates.into_iter().map(|s| s.into()).collect(),
         }
     }
 
@@ -275,7 +279,7 @@ impl MatchingEngine {
             df_with_score,
             &self.treatment_col,
             &self.outcome_col,
-            &["propensity_score"],
+            vec!["propensity_score"],
         );
         engine.run_matching(k, false)
     }
@@ -309,7 +313,7 @@ mod tests {
     #[test]
     fn test_match_nearest_neighbor_euclidean() {
         let df = create_dummy_df();
-        let engine = MatchingEngine::new(df, "treatment", "outcome", &["age", "education"]);
+        let engine = MatchingEngine::new(df, "treatment", "outcome", vec!["age", "education"]);
 
         let weights = engine.match_nearest_neighbor(1, false).unwrap();
 

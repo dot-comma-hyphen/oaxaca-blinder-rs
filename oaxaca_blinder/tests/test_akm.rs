@@ -55,7 +55,7 @@ fn test_akm_synthetic() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Run AKM
     let result = AkmBuilder::new(df, "y", "worker", "firm")
-        .controls(&["x"])
+        .controls(vec!["x"])
         .tolerance(1e-8)
         .max_iters(100)
         .run()?;

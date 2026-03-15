@@ -33,7 +33,7 @@ fn test_rif_decomposition() -> Result<(), Box<dyn std::error::Error>> {
 
     // Decompose at the 90th percentile
     let results = OaxacaBuilder::new(df, "wage", "group", "F")
-        .predictors(&["education"])
+        .predictors(vec!["education"])
         .bootstrap_reps(10)
         .decompose_quantile(0.9)?;
 

@@ -171,9 +171,13 @@ impl OaxacaBuilder {
     ///
     /// # Arguments
     ///
-    /// * `predictors` - A slice of strings representing the column names of the predictor variables.
-    pub fn predictors(&mut self, predictors: &[&str]) -> &mut Self {
-        self.predictors = predictors.iter().map(|s| s.to_string()).collect();
+    /// * `predictors` - An iterator over strings representing the column names of the predictor variables.
+    pub fn predictors<I, S>(&mut self, predictors: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.predictors = predictors.into_iter().map(|s| s.into()).collect();
         self
     }
 
@@ -181,9 +185,13 @@ impl OaxacaBuilder {
     ///
     /// # Arguments
     ///
-    /// * `predictors` - A slice of strings representing the column names of the categorical predictor variables.
-    pub fn categorical_predictors(&mut self, predictors: &[&str]) -> &mut Self {
-        self.categorical_predictors = predictors.iter().map(|s| s.to_string()).collect();
+    /// * `predictors` - An iterator over strings representing the column names of the categorical predictor variables.
+    pub fn categorical_predictors<I, S>(&mut self, predictors: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.categorical_predictors = predictors.into_iter().map(|s| s.into()).collect();
         self
     }
 
@@ -201,9 +209,13 @@ impl OaxacaBuilder {
     ///
     /// # Arguments
     ///
-    /// * `vars` - A slice of strings representing the column names of the categorical variables to normalize.
-    pub fn normalize(&mut self, vars: &[&str]) -> &mut Self {
-        self.normalization_vars = vars.iter().map(|s| s.to_string()).collect();
+    /// * `vars` - An iterator over strings representing the column names of the categorical variables to normalize.
+    pub fn normalize<I, S>(&mut self, vars: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.normalization_vars = vars.into_iter().map(|s| s.into()).collect();
         self
     }
 
@@ -223,9 +235,13 @@ impl OaxacaBuilder {
     ///
     /// * `outcome` - The binary selection variable (e.g., "employed").
     /// * `predictors` - The predictors for the selection equation (should include exclusion restriction).
-    pub fn heckman_selection(&mut self, outcome: &str, predictors: &[&str]) -> &mut Self {
+    pub fn heckman_selection<I, S>(&mut self, outcome: &str, predictors: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
         self.selection_outcome = Some(outcome.to_string());
-        self.selection_predictors = predictors.iter().map(|s| s.to_string()).collect();
+        self.selection_predictors = predictors.into_iter().map(|s| s.into()).collect();
         self
     }
 
@@ -727,29 +743,11 @@ impl OaxacaBuilder {
         let mut builder =
             OaxacaBuilder::new(df_mod, &self.outcome, &self.group, &self.reference_group);
         builder
-            .predictors(
-                &self
-                    .predictors
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>(),
-            )
-            .categorical_predictors(
-                &self
-                    .categorical_predictors
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>(),
-            )
+            .predictors(self.predictors.iter().map(|s| s.as_str()))
+            .categorical_predictors(self.categorical_predictors.iter().map(|s| s.as_str()))
             .bootstrap_reps(self.bootstrap_reps)
             .reference_coefficients(self.reference_coeffs)
-            .normalize(
-                &self
-                    .normalization_vars
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>(),
-            );
+            .normalize(self.normalization_vars.iter().map(|s| s.as_str()));
 
         if let Some(w) = &self.weights_col {
             builder.weights(w);

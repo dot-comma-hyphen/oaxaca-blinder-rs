@@ -161,11 +161,11 @@ fn run_decomposition_on_df(
             &req.group_variable,
             &req.reference_group,
         );
-        builder.predictors(&predictors);
+        builder.predictors(predictors.iter().copied());
         builder.quantiles(&[q]); // Single quantile for now
 
         if let Some(cats) = &cats_vec {
-            builder.categorical_predictors(cats);
+            builder.categorical_predictors(cats.iter().copied());
         }
 
         builder.bootstrap_reps(reps);
@@ -203,11 +203,11 @@ fn run_decomposition_on_df(
             &req.group_variable,
             &req.reference_group,
         );
-        builder.predictors(&predictors);
+        builder.predictors(predictors.iter().copied());
         builder.reference_coefficients(ref_coef);
 
         if let Some(cats) = &cats_vec {
-            builder.categorical_predictors(cats);
+            builder.categorical_predictors(cats.iter().copied());
         }
 
         builder.bootstrap_reps(reps);
@@ -332,11 +332,11 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
         &req.group_variable,
         &req.reference_group,
     );
-    gap_builder.predictors(&predictors);
+    gap_builder.predictors(predictors.iter().copied());
     gap_builder.reference_coefficients(ReferenceCoefficients::Pooled);
 
     if let Some(cats) = &cats_vec {
-        gap_builder.categorical_predictors(cats);
+        gap_builder.categorical_predictors(cats.iter().copied());
     }
     gap_builder.bootstrap_reps(10);
 
@@ -350,11 +350,11 @@ pub fn optimize_inner(req: OptimizationRequest) -> Result<OptimizationResult, St
         &req.group_variable,
         &req.reference_group,
     );
-    problem_builder.predictors(&predictors);
+    problem_builder.predictors(predictors.iter().copied());
     problem_builder.reference_coefficients(ReferenceCoefficients::Pooled);
 
     if let Some(cats) = &cats_vec {
-        problem_builder.categorical_predictors(cats);
+        problem_builder.categorical_predictors(cats.iter().copied());
     }
 
     // Identify Target AND Reference Group Indices
@@ -894,11 +894,11 @@ pub fn calculate_efficient_frontier_inner(
         &req.decomposition_params.group_variable,
         &req.decomposition_params.reference_group,
     );
-    problem_builder.predictors(&predictors);
+    problem_builder.predictors(predictors.iter().copied());
     problem_builder.reference_coefficients(ReferenceCoefficients::Pooled);
 
     if let Some(cats) = &cats_vec {
-        problem_builder.categorical_predictors(cats);
+        problem_builder.categorical_predictors(cats.iter().copied());
     }
 
     // 2a. Determine Max Budget / Total Need
