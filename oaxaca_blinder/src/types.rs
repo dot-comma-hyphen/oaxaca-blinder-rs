@@ -47,20 +47,18 @@ pub struct OaxacaResults {
 }
 
 impl OaxacaResults {
-    pub fn explained(&self) -> &ComponentResult {
+    pub fn explained(&self) -> Option<&ComponentResult> {
         self.two_fold
             .aggregate()
             .iter()
             .find(|c| c.name == "explained")
-            .expect("Explained component not found")
     }
 
-    pub fn unexplained(&self) -> &ComponentResult {
+    pub fn unexplained(&self) -> Option<&ComponentResult> {
         self.two_fold
             .aggregate()
             .iter()
             .find(|c| c.name == "unexplained")
-            .expect("Unexplained component not found")
     }
 
     pub fn get_summary_table(&self) -> Vec<(&String, &ComponentResult)> {
