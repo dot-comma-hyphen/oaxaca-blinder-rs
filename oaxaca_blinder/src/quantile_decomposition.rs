@@ -271,7 +271,13 @@ impl QuantileDecompositionBuilder {
     }
 
     pub fn run(&self) -> Result<QuantileDecompositionResults, OaxacaError> {
-        let mut df = self.dataframe.clone();
+        let mut cols_to_select = vec![self.outcome.clone(), self.group.clone()];
+        cols_to_select.extend(self.predictors.clone());
+        cols_to_select.extend(self.categorical_predictors.clone());
+
+        // 1. Clean data first to ensure quantiles are calculated on non-null data
+        let mut df = self.dataframe.select(&cols_to_select)?;
+
         let mut all_dummy_names = Vec::new();
         if !self.categorical_predictors.is_empty() {
             for cat_pred in &self.categorical_predictors {
