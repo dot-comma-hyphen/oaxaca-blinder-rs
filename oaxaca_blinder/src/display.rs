@@ -108,7 +108,6 @@ impl OaxacaResults {
         latex.push_str("\\label{tab:oaxaca_results}\n");
         latex.push_str("\\end{table}\n");
         latex
-
     }
 
     /// Exports the results to a Markdown table.

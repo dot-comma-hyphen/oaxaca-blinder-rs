@@ -809,7 +809,6 @@ impl OaxacaBuilder {
 
         let groups = self.split_groups(&df)?;
 
-
         let point_estimates =
             self.run_single_pass(&df, &all_dummy_names, &category_counts, &base_categories)?;
 
@@ -986,13 +985,7 @@ impl OaxacaBuilder {
     }
 }
 
-
-
-impl OaxacaResults {
-}
-
-
-
+impl OaxacaResults {}
 
 #[cfg(test)]
 mod tests {
