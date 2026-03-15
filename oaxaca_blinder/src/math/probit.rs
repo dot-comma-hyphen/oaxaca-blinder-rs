@@ -100,21 +100,25 @@ pub fn probit(
             h[(i, i)] -= 1e-9;
         }
 
-        let h_inv = match h.clone().try_inverse() {
-            Some(inv) => inv,
+        // We solve H * step = -gradient
+        // H is negative definite (or at least negative semi-definite). We added -1e-9 so it should be negative definite.
+        // Let's solve (-H) * step = gradient, where -H is positive definite, so we can use Cholesky decomposition.
+        let neg_h = -&h;
+        let step = match neg_h.cholesky() {
+            Some(chol) => chol.solve(&gradient),
             None => {
-                return Err(OaxacaError::NalgebraError(
-                    "Failed to invert Hessian in Probit".to_string(),
-                ))
+                // Fallback to LU if not positive definite
+                match h.clone().lu().solve(&gradient) {
+                    Some(s) => -s,
+                    None => {
+                        return Err(OaxacaError::NalgebraError(
+                            "Failed to solve Hessian system in Probit".to_string(),
+                        ))
+                    }
+                }
             }
         };
 
-        // delta = (-H)^{-1} * g
-        // delta = -(H^{-1} * g)
-        // Actually: beta_new = beta_old - H^{-1} g.
-        // If H is negative definite, -H^{-1} is positive definite.
-
-        let step = -&h_inv * &gradient;
         beta += &step;
 
         if step.norm() < tol {
