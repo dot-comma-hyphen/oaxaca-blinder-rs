@@ -407,6 +407,24 @@ async fn handle_sse_get(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    if state.rate_limiter.check().is_err() {
+        return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+    }
+
+    let auth_header = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"))
+        .and_then(|h| h.to_str().ok());
+
+    let authorized = match auth_header {
+        Some(h) => h == state.api_key || h == format!("Bearer {}", state.api_key),
+        None => false,
+    };
+
+    if !authorized {
+        return (StatusCode::UNAUTHORIZED, "Invalid API Key").into_response();
+    }
+
     if headers.get("mcp-session-id").is_some() {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
@@ -455,6 +473,24 @@ async fn handle_sse_delete(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    if state.rate_limiter.check().is_err() {
+        return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+    }
+
+    let auth_header = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"))
+        .and_then(|h| h.to_str().ok());
+
+    let authorized = match auth_header {
+        Some(h) => h == state.api_key || h == format!("Bearer {}", state.api_key),
+        None => false,
+    };
+
+    if !authorized {
+        return (StatusCode::UNAUTHORIZED, "Invalid API Key").into_response();
+    }
+
     if let Some(id_val) = headers.get("mcp-session-id") {
         if let Ok(id) = id_val.to_str() {
             let mut sessions = match state.sessions.write() {
