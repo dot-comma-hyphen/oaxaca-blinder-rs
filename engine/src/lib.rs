@@ -76,9 +76,9 @@ mod access;
 #[cfg(all(test, target_arch = "wasm32", feature = "wasm"))]
 mod tests {
     use super::*;
+    use crate::types::{AllocationStrategy, OptimizationRequest, OptimizationTarget, RangeTarget};
     use wasm_bindgen::JsValue;
     use wasm_bindgen_test::*;
-    use crate::types::{OptimizationRequest, AllocationStrategy, OptimizationTarget, RangeTarget};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -124,7 +124,8 @@ mod tests {
         };
 
         // Serialize into JsValue
-        let valid_val = serde_wasm_bindgen::to_value(&req).expect("Failed to serialize OptimizationRequest to JsValue");
+        let valid_val = serde_wasm_bindgen::to_value(&req)
+            .expect("Failed to serialize OptimizationRequest to JsValue");
 
         // Call the WASM wrapper
         let result = optimize(valid_val);
@@ -134,7 +135,8 @@ mod tests {
 
         // We could also deserialize the result back to verify the wrapper
         let res_val = result.unwrap();
-        let opt_res: crate::types::OptimizationResult = serde_wasm_bindgen::from_value(res_val).expect("Failed to deserialize OptimizationResult from JsValue");
+        let opt_res: crate::types::OptimizationResult = serde_wasm_bindgen::from_value(res_val)
+            .expect("Failed to deserialize OptimizationResult from JsValue");
 
         // Verify a basic property to ensure it ran successfully
         assert!(opt_res.total_cost >= 0.0);
