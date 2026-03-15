@@ -114,9 +114,7 @@ impl MatchingEngine {
         // 1. Add index column to track original rows
         let mut df = self.dataframe.clone();
         let indices: Vec<u32> = (0..df.height() as u32).collect();
-        let df = df
-            .with_column(Series::new("orig_index".into(), indices))?
-            .clone();
+        let _ = df.with_column(Series::new("orig_index".into(), indices))?;
 
         // 2. Split
         let treated_mask = df
