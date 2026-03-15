@@ -77,8 +77,8 @@ mod access;
 #[cfg(feature = "wasm")]
 mod tests {
     use super::*;
+    use crate::types::{DecompositionRequest, EfficientFrontierRequest};
     use wasm_bindgen_test::*;
-    use crate::types::{EfficientFrontierRequest, DecompositionRequest};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -109,7 +109,7 @@ mod tests {
         match result {
             Ok(val) => {
                 assert!(val.is_object());
-            },
+            }
             Err(e) => panic!("Expected Ok, got Err: {:?}", e),
         }
     }
