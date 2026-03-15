@@ -186,33 +186,3 @@ mod tests {
         }
     }
 }
-
-#[cfg(test)]
-mod bench {
-    use super::*;
-    use polars::prelude::*;
-    use std::time::Instant;
-
-    #[test]
-    fn bench_vif() {
-        let mut cols = Vec::new();
-        let n_rows = 5000;
-        let n_cols = 50;
-
-        for i in 0..n_cols {
-            let name = format!("x{}", i);
-            let vals: Vec<f64> = (0..n_rows).map(|j| (i + j) as f64).collect();
-            cols.push(polars::prelude::Column::Series(Series::new(name.into(), vals)));
-        }
-
-        let df = DataFrame::new(cols).unwrap();
-        let predictor_names: Vec<String> = (0..n_cols).map(|i| format!("x{}", i)).collect();
-
-        let start = Instant::now();
-        for _ in 0..10 {
-            let _ = calculate_vif(&df, &predictor_names);
-        }
-        let elapsed = start.elapsed();
-        println!("Elapsed time for 10 iterations: {:?}", elapsed);
-    }
-}
