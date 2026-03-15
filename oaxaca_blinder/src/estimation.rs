@@ -232,21 +232,38 @@ impl HeckmanEstimator {
             .column(&self.selection_outcome)?
             .as_materialized_series()
             .equal(1)?;
-        let mut rows = Vec::new();
-        let mut y_vals = Vec::new();
+
+        let mut true_indices = Vec::with_capacity(df.height());
         for i in 0..df.height() {
             if mask.get(i) == Some(true) {
-                rows.push(x.row(i).into_owned());
-                y_vals.push(y[i]);
+                true_indices.push(i);
             }
         }
-        if rows.is_empty() {
+
+        if true_indices.is_empty() {
             return Err(OaxacaError::InvalidGroupVariable(
                 "No observed outcomes in group".to_string(),
             ));
         }
-        let x_filtered = DMatrix::from_rows(&rows);
+
+        let num_true = true_indices.len();
+        let ncols = x.ncols();
+
+        let mut x_vals = Vec::with_capacity(num_true * ncols);
+        for j in 0..ncols {
+            let col = x.column(j);
+            for &i in &true_indices {
+                x_vals.push(col[i]);
+            }
+        }
+        let x_filtered = DMatrix::from_vec(num_true, ncols, x_vals);
+
+        let mut y_vals = Vec::with_capacity(num_true);
+        for &i in &true_indices {
+            y_vals.push(y[i]);
+        }
         let y_filtered = DVector::from_vec(y_vals);
+
         Ok((x_filtered, y_filtered))
     }
 }
