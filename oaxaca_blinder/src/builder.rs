@@ -743,23 +743,11 @@ impl OaxacaBuilder {
         let mut builder =
             OaxacaBuilder::new(df_mod, &self.outcome, &self.group, &self.reference_group);
         builder
-            .predictors(
-                self.predictors
-                    .iter()
-                    .map(|s| s.as_str()),
-            )
-            .categorical_predictors(
-                self.categorical_predictors
-                    .iter()
-                    .map(|s| s.as_str()),
-            )
+            .predictors(self.predictors.iter().map(|s| s.as_str()))
+            .categorical_predictors(self.categorical_predictors.iter().map(|s| s.as_str()))
             .bootstrap_reps(self.bootstrap_reps)
             .reference_coefficients(self.reference_coeffs)
-            .normalize(
-                self.normalization_vars
-                    .iter()
-                    .map(|s| s.as_str()),
-            );
+            .normalize(self.normalization_vars.iter().map(|s| s.as_str()));
 
         if let Some(w) = &self.weights_col {
             builder.weights(w);
