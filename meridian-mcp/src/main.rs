@@ -262,19 +262,17 @@ async fn run_sse_server(port: u16, api_key: String) -> Result<()> {
     };
 
     let cors = CorsLayer::new()
-        .allow_origin(
-            "http://127.0.0.1"
-                .parse::<axum::http::HeaderValue>()
-                .unwrap(),
-        )
+        .allow_origin(axum::http::HeaderValue::from_static("http://127.0.0.1"))
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
-            "x-api-key".parse::<axum::http::HeaderName>().unwrap(),
-            "mcp-session-id".parse::<axum::http::HeaderName>().unwrap(),
+            axum::http::header::HeaderName::from_static("x-api-key"),
+            axum::http::header::HeaderName::from_static("mcp-session-id"),
         ])
-        .expose_headers(["Mcp-Session-Id".parse::<axum::http::HeaderName>().unwrap()]);
+        .expose_headers([axum::http::header::HeaderName::from_static(
+            "mcp-session-id",
+        )]);
 
     let app = Router::new()
         .route(
@@ -393,9 +391,11 @@ async fn handle_sse_post(
             .insert("Content-Type", HeaderValue::from_static("application/json"));
 
         if let Some(sid) = session_id {
-            response
-                .headers_mut()
-                .insert("Mcp-Session-Id", HeaderValue::from_str(&sid).unwrap());
+            let hv = match HeaderValue::from_str(&sid) {
+                Ok(v) => v,
+                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+            response.headers_mut().insert("Mcp-Session-Id", hv);
         }
         response
     } else {
