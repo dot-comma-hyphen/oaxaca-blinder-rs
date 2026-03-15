@@ -53,15 +53,14 @@ pub fn calculate_vif(
             .cloned()
             .collect();
 
-        let x_df = df.select(&other_predictors)?;
-        let mut x_df_with_intercept = x_df.clone();
+        let mut x_df = df.select(&other_predictors)?;
         let intercept = Series::new("__ob_intercept__".into(), vec![1.0; x_df.height()]);
-        x_df_with_intercept.with_column(intercept)?;
+        x_df.with_column(intercept)?;
 
-        let x_matrix_ndarray = x_df_with_intercept.to_ndarray::<Float64Type>(IndexOrder::C)?;
+        let x_matrix_ndarray = x_df.to_ndarray::<Float64Type>(IndexOrder::C)?;
         let x_matrix = DMatrix::from_row_slice(
-            x_df_with_intercept.height(),
-            x_df_with_intercept.width(),
+            x_df.height(),
+            x_df.width(),
             &x_matrix_ndarray.into_raw_vec(),
         );
 
