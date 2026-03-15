@@ -85,13 +85,14 @@ pub fn logit(
         // But for DFL, perfect separation can be an issue.
         // Let's try standard inversion first.
 
-        let inv_info = information_matrix.try_inverse().ok_or_else(|| {
-            OaxacaError::NalgebraError(
-                "Failed to invert Information Matrix in Logit. Perfect separation?".to_string(),
-            )
-        })?;
-
-        let step = &inv_info * &gradient;
+        let step = information_matrix
+            .cholesky()
+            .ok_or_else(|| {
+                OaxacaError::NalgebraError(
+                    "Failed to solve Information Matrix in Logit. Perfect separation?".to_string(),
+                )
+            })?
+            .solve(&gradient);
         beta += &step;
 
         if step.norm() < tol {
@@ -177,7 +178,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(crate::OaxacaError::NalgebraError(msg)) => {
-                assert!(msg.contains("Failed to invert Information Matrix"));
+                assert!(msg.contains("Failed to solve Information Matrix"));
             }
             Err(_) => panic!("Expected NalgebraError"),
             Ok(_) => panic!("Expected an error for singular matrix"),
