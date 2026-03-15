@@ -72,3 +72,59 @@ pub async fn validate_access_code(code: String, registry_url: String) -> Result<
 }
 
 mod access;
+
+#[cfg(test)]
+#[cfg(feature = "wasm")]
+mod tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+    use crate::types::{EfficientFrontierRequest, DecompositionRequest};
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    fn test_calculate_efficient_frontier_valid_structure() {
+        let csv_data = b"wage,gender,education\n50000,Male,12\n40000,Female,12\n60000,Male,14\n45000,Female,14\n70000,Male,16\n55000,Female,16\n50000,Male,12\n40000,Female,12\n60000,Male,14\n45000,Female,14\n70000,Male,16\n55000,Female,16\n50000,Male,12\n40000,Female,12\n60000,Male,14\n45000,Female,14\n70000,Male,16\n55000,Female,16\n50000,Male,12\n40000,Female,12\n60000,Male,14\n45000,Female,14\n70000,Male,16\n55000,Female,16".to_vec();
+        let req = EfficientFrontierRequest {
+            decomposition_params: DecompositionRequest {
+                csv_data,
+                outcome_variable: "wage".to_string(),
+                group_variable: "gender".to_string(),
+                reference_group: "Male".to_string(),
+                predictors: vec!["education".to_string()],
+                categorical_predictors: None,
+                three_fold: None,
+                quantile: None,
+                reference_coefficients: None,
+                bootstrap_reps: None,
+            },
+            steps: Some(10),
+            max_budget: Some(10000.0),
+        };
+
+        let js_val = serde_wasm_bindgen::to_value(&req).unwrap();
+
+        let result = calculate_efficient_frontier(js_val);
+
+        match result {
+            Ok(val) => {
+                assert!(val.is_object());
+            },
+            Err(e) => panic!("Expected Ok, got Err: {:?}", e),
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn test_calculate_efficient_frontier_invalid_js_value() {
+        let js_val = JsValue::from_str("not an object");
+        let result = calculate_efficient_frontier(js_val);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        if let Some(js_str) = err.as_string() {
+            assert!(!js_str.is_empty());
+        } else {
+            assert!(err.is_object() || err.is_string());
+        }
+    }
+}
