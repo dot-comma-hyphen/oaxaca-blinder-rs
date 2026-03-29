@@ -1369,4 +1369,52 @@ mod tests {
         println!("Start T: {}, End T: {}", first_t, last_t);
         // assert!(last_t < first_t); // This might not always hold depending on noise, but generally true.
     }
+
+    #[test]
+    fn test_decompose_with_non_numeric_outcome() {
+        let csv = "wage,education,experience,gender\ninvalid,12,5,Male\n50000,16,2,Female\n";
+        let req = DecompositionRequest {
+            csv_data: csv.as_bytes().to_vec(),
+            outcome_variable: "wage".to_string(),
+            group_variable: "gender".to_string(),
+            reference_group: "Female".to_string(),
+            predictors: vec!["education".to_string(), "experience".to_string()],
+            categorical_predictors: None,
+            three_fold: None,
+            quantile: None,
+            reference_coefficients: None,
+            bootstrap_reps: Some(10),
+        };
+
+        let res = decompose_inner(req);
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err(),
+            "Column 'wage' contains non-numeric data but was selected as a continuous variable. Please verify your column selection."
+        );
+    }
+
+    #[test]
+    fn test_decompose_with_non_numeric_predictor() {
+        let csv = "wage,education,experience,gender\n50000,invalid,5,Male\n50000,16,2,Female\n";
+        let req = DecompositionRequest {
+            csv_data: csv.as_bytes().to_vec(),
+            outcome_variable: "wage".to_string(),
+            group_variable: "gender".to_string(),
+            reference_group: "Female".to_string(),
+            predictors: vec!["education".to_string(), "experience".to_string()],
+            categorical_predictors: None,
+            three_fold: None,
+            quantile: None,
+            reference_coefficients: None,
+            bootstrap_reps: Some(10),
+        };
+
+        let res = decompose_inner(req);
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err(),
+            "Column 'education' contains non-numeric data but was selected as a continuous variable. Please verify your column selection."
+        );
+    }
 }
