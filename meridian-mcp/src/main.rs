@@ -275,8 +275,8 @@ impl AppState {
         let direct_match = constant_time_compare(h.as_bytes(), self.api_key.as_bytes());
 
         let bearer_prefix = "Bearer ";
-        let bearer_match = if h.starts_with(bearer_prefix) {
-            constant_time_compare(h[bearer_prefix.len()..].as_bytes(), self.api_key.as_bytes())
+        let bearer_match = if let Some(stripped) = h.strip_prefix(bearer_prefix) {
+            constant_time_compare(stripped.as_bytes(), self.api_key.as_bytes())
         } else {
             false
         };
